@@ -1,7 +1,7 @@
 # Customer Discovery Brief
 
-This demo sends a Recall Meeting Bot to a Google Meet and turns the recorded
-conversation into a custom report.
+This demo sends a Recall Meeting Bot to a supported meeting URL, such as Zoom
+or Google Meet, and turns the recorded conversation into a custom report.
 
 Before the meeting, the user chooses what the report should include, such as
 pain points, desired outcomes, product requests, or a custom category. After the
@@ -13,7 +13,43 @@ meeting, the app shows:
 - The meeting recording beside the transcript evidence
 
 [Product overview](./docs/PRODUCT.md) ·
+[Architecture and decisions](./docs/ARCHITECTURE.md) ·
 [Recall.ai documentation](https://docs.recall.ai/)
+
+## How it works
+
+1. The browser sends a meeting URL and brief settings to the Express server.
+2. The server creates a Recall bot with recording, participation, chat, and
+   optional camera-card configuration.
+3. Verified Recall webhooks move the meeting through joining, recording,
+   transcription, and generation.
+4. The server converts the transcript into timestamped source segments and asks
+   OpenRouter for a schema-constrained brief that cites those segments.
+5. The browser reads the current session from the server and presents the brief,
+   participation context, source evidence, and proxied recording playback.
+
+The browser polls only this application's server for presentation state. Recall
+lifecycle updates are webhook-driven; the app does not poll Recall.
+
+The project deliberately uses browser-native JavaScript modules and one Express
+server, so there is no frontend build step or separate frontend process.
+
+## Repository map
+
+| Path | Responsibility |
+| --- | --- |
+| `public/index.html` | Static page structure and application entry point |
+| `public/app.js` | Browser state, form handling, server requests, and result orchestration |
+| `public/components.js` | Small DOM rendering functions for brief, evidence, and participation views |
+| `public/styles.css` | Responsive layout and visual presentation |
+| `src/server.js` | Configuration, HTTP routes, in-memory session state, and webhook coordination |
+| `src/recall.js` | Recall API requests, retry behavior, webhook verification, and participation processing |
+| `src/brief.js` | Transcript segmentation, OpenRouter generation, output validation, and Markdown export |
+| `shared/domain.js` | Shared brief definitions, limits, stage values, and formatting helpers |
+| `test/core.test.js` | Core workflow, validation, webhook, Recall, and brief-generation tests |
+| `test/helpers.js` | Focused fixtures and request helpers used by the tests |
+| `docs/PRODUCT.md` | Accepted product scope, workflow, and guardrails |
+| `docs/ARCHITECTURE.md` | System flow, design decisions, limitations, and extension path |
 
 ## Prerequisites
 
@@ -24,9 +60,12 @@ Install or create the following before running the app:
 3. A [Recall.ai account](https://www.recall.ai/)
 4. An [OpenRouter account](https://openrouter.ai/)
 5. An [ngrok account and CLI](https://ngrok.com/docs/getting-started/)
-6. A Google account that can host a Google Meet
+6. Access to a supported meeting, such as Zoom or Google Meet
 
-You do not need Zoom credentials, a database, or a separate frontend server.
+You do not need a database or a separate frontend server. The walkthrough below
+uses Google Meet, but Zoom links follow the same `meeting_url` flow. Recall
+documents platform-specific setup and feature differences in its
+[meeting-platform overview](https://docs.recall.ai/docs/meeting-platforms).
 
 ## 1. Clone and install
 
@@ -156,12 +195,15 @@ after any restart.
 
 ## 8. Try the demo
 
-1. Start a Google Meet.
+This walkthrough uses Google Meet as the primary example. You can also provide a
+Zoom meeting link to the same input.
+
+1. Start a Google Meet or Zoom meeting.
 2. Copy the meeting URL into the app.
 3. Choose the sections to include in the brief.
 4. Optionally define one custom section or change the bot's appearance.
 5. Select **Send bot**.
-6. Admit the bot to the meeting if Google Meet asks.
+6. Admit the bot if the meeting uses a waiting room.
 7. Confirm participant consent and hold the conversation.
 8. End the meeting normally.
 9. Keep the app open while Recall processes the recording and transcript.
@@ -174,8 +216,8 @@ When processing finishes, the page displays:
 - Timestamp links that seek the recording
 - A button to copy the brief as Markdown
 
-To test participation analytics, join from a phone or second Google account and
-alternate speakers before ending the meeting.
+To test participation analytics, join from a phone or second attendee account
+and alternate speakers before ending the meeting.
 
 ## Troubleshooting
 
