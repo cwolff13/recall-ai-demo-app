@@ -1,154 +1,77 @@
 # Customer Discovery Brief
 
-A minimal Recall.ai demo that turns one customer interview into a reviewable
-brief. It identifies pain points, goals, product requests, and follow-ups, then
-links every factual item to the timestamped transcript and recording.
+A small Recall.ai demo that turns one customer interview into a source-linked
+discovery brief.
 
-The application is intentionally one Node process: Express serves the browser
-interface, creates the Recall bot, receives verified webhooks, requests
-post-meeting transcription, and calls OpenRouter for one structured result.
+Paste in a Google Meet URL, choose the sections you want, and send a Recall bot
+to the meeting. After the call, the app organizes the conversation into a
+summary, pain points, desired outcomes, product requests, follow-ups, and open
+questions. Each result links back to the supporting transcript moment and
+recording.
 
-## Why this workflow
+This workflow shows how a Recall customer could build a useful product on top
+of meeting capture, transcription, webhooks, and recording playback.
 
-Customer interviews contain useful product signals, but generated summaries are
-difficult to trust without source context. Recall supplies the meeting capture,
-recording lifecycle, speaker-attributed transcript, and playback. The
-application adds the customer-discovery organization and evidence review.
+## Run locally
 
-## Flow
-
-```text
-Meeting URL
-  -> Recall Meeting Bot
-  -> verified recording.done webhook
-  -> Recall post-meeting transcript
-  -> verified transcript.done webhook
-  -> OpenRouter structured brief
-  -> recording + timestamped evidence review
-```
-
-There is no realtime transcript, database, job system, client framework, or
-Recall polling.
-
-## Setup
-
-Requirements:
-
-- Node.js 22 or newer
-- A Recall workspace and API key
-- A Recall workspace verification secret
-- An OpenRouter API key
-- A stable public HTTPS URL forwarding to this server, such as a static ngrok
-  domain
+You need Node.js 22+, a Recall API key and workspace verification secret, an
+OpenRouter API key, and a public HTTPS URL that forwards to this server.
 
 ```bash
 npm install
 cp .env.example .env
+```
+
+Fill in the values in `.env`, then configure a Recall dashboard webhook at:
+
+```text
+https://your-public-url.example/api/webhooks/recall
+```
+
+Subscribe it to `bot.*`, `recording.done`, `recording.failed`,
+`transcript.done`, and `transcript.failed`. For local development, a tunnel such
+as `ngrok http 3000` can provide the public URL.
+
+Start the app:
+
+```bash
 npm run dev
 ```
 
-Set these server-only values in `.env`:
+Open your `PUBLIC_API_BASE_URL`
 
-| Variable | Purpose |
-| --- | --- |
-| `RECALL_REGION` | Region shared by all Recall resources |
-| `RECALL_API_KEY` | Region-specific Recall API key |
-| `RECALL_WORKSPACE_VERIFICATION_SECRET` | Verifies Recall webhook signatures |
-| `PUBLIC_API_BASE_URL` | Stable HTTPS URL reaching this server |
-| `OPENROUTER_API_KEY` | Generates the structured discovery brief |
-| `OPENROUTER_MODEL` | Optional; defaults to `openai/gpt-5-mini` |
+## Try the demo
 
-Never commit `.env`.
+1. Start a Google Meet interview.
+2. Paste the meeting URL into the app and choose the brief sections. Every
+   section is selected by default.
+3. Send the bot and admit **Discovery Notes Bot** if prompted.
+4. Confirm participant consent, then hold the interview.
+5. End the meeting and keep the app running while Recall processes it.
+6. Review the generated brief and use its citations to revisit the source
+   conversation.
 
-## Recall webhook
+The demo supports one in-memory meeting at a time. It intentionally omits
+authentication, durable storage, and concurrent processing.
 
-The app receives dashboard webhooks at:
+## Section selection
 
-```text
-PUBLIC_API_BASE_URL/api/webhooks/recall
-```
+The selector controls which sections OpenRouter extracts and which headings
+appear in the browser and copied Markdown. Recall still records and transcribes
+the complete meeting, and source evidence remains available for review.
 
-Subscribe the endpoint to:
+`POST /api/session` accepts an optional `sections` array containing any of:
+`summary`, `pain_points`, `desired_outcomes`, `product_requests`, `follow_ups`,
+and `open_questions`. Omitting the field selects every section. `GET
+/api/session` returns the normalized selection locked to the current meeting.
 
-- `bot.*`
-- `recording.done`
-- `recording.failed`
-- `transcript.done`
-- `transcript.failed`
-
-The currently connected Recall workspace already has an active endpoint at this
-path with these event subscriptions. If the public base URL changes, update the
-dashboard endpoint to the new stable URL in the same Recall region.
-
-For local development:
-
-```bash
-ngrok http 3000
-```
-
-Use a static ngrok domain and confirm it exactly matches
-`PUBLIC_API_BASE_URL`. See Recall's
-[local webhook guide](https://docs.recall.ai/docs/local-webhook-development).
-
-## Demo
-
-1. Start a Google Meet customer interview.
-2. Paste the meeting URL into the app and send the bot.
-3. Admit **Discovery Notes Bot** if it enters the waiting room.
-4. Confirm participant consent. The bot also sends a chat notice when it joins.
-5. Discuss a current workflow, a pain point, a desired outcome, a product
-   request, and a follow-up.
-6. End the meeting and keep the server running.
-7. Review the generated brief. Select citations to seek the recording to the
-   supporting moment.
-8. Copy the reviewed brief as Markdown.
-
-Google Meet is the initial live-verification target. Do not describe another
-meeting platform as verified until it has been tested.
-
-## Server interface
-
-- `POST /api/session` sends the bot to one meeting.
-- `GET /api/session` returns browser-safe application state.
-- `POST /api/webhooks/recall` verifies and accepts Recall lifecycle events.
-- `GET /api/recording` proxies fresh Recall recording media with byte-range
-  support.
-
-The browser polls only this application's session endpoint. Recall lifecycle
-state always comes from webhooks.
-
-## Verification
+## Check the code
 
 ```bash
 npm run check
 npm test
 ```
 
-The automated tests cover raw webhook signatures, rotated signatures,
-deduplication, event correlation, Recall retry decisions, transcript
-normalization, and evidence validation. They do not prove the live integration.
-
-An end-to-end claim requires a real meeting where the expected verified
-webhooks, Recall recording, Recall transcript, generated brief, and recording
-playback are all observed.
-
-## Deliberate limitations
-
-- One active meeting and one in-memory result
-- State and webhook deduplication reset when the process restarts
-- No authentication or authorization
-- No durable queue, database, or concurrent processing
-- The transcript is sent to the configured OpenRouter model
-- The app must not be exposed as a production service without access controls
-
-A customer extension would normally add durable jobs and storage,
-authentication around meeting artifacts, multi-interview research organization,
-and a reviewed publishing destination.
-
-## Current references
-
-- [Recall Create Bot](https://docs.recall.ai/reference/bot_create)
-- [Post-meeting transcription](https://docs.recall.ai/docs/async-transcription)
-- [Verifying requests from Recall](https://docs.recall.ai/docs/authenticating-requests-from-recallai)
-- [Recording playback](https://docs.recall.ai/docs/video-playback)
-- [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
+These checks cover webhook handling, transcript evidence, section validation,
+selective generation, and Markdown with automated tests. A real meeting is still
+required to verify the complete Recall workflow.
