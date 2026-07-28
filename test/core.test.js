@@ -13,8 +13,10 @@ import {
 } from "../src/brief.js";
 import {
   createBot,
+  getMeetingParticipation,
   recallRequest,
   retryDelayMs,
+  summarizeMeetingParticipation,
   verifyRecallRequest,
 } from "../src/recall.js";
 import {
@@ -146,6 +148,7 @@ describe("Recall bot creation", () => {
 
     assert.equal(bot.id, "bot-1");
     assert.equal(requestBody.bot_name, "Research Companion");
+    assert.deepEqual(requestBody.recording_config.participant_events, {});
     assert.deepEqual(requestBody.automatic_video_output, {
       in_call_not_recording: {
         kind: "jpeg",
@@ -156,6 +159,192 @@ describe("Recall bot creation", () => {
         b64_data: botImage,
       },
     });
+  });
+});
+
+describe("Meeting participation", () => {
+  const participants = [
+    { id: 1, name: "Alex", is_host: true },
+    { id: 2, name: "Jordan", is_host: false },
+  ];
+  const events = [
+    {
+      action: "join",
+      participant: { id: 1 },
+      timestamp: { relative: 0 },
+    },
+    {
+      action: "leave",
+      participant: { id: 1 },
+      timestamp: { relative: 90 },
+    },
+    {
+      action: "join",
+      participant: { id: 2 },
+      timestamp: { relative: 10 },
+    },
+    {
+      action: "leave",
+      participant: { id: 2 },
+      timestamp: { relative: 40 },
+    },
+    {
+      action: "join",
+      participant: { id: 2 },
+      timestamp: { relative: 50 },
+    },
+    {
+      action: "leave",
+      participant: { id: 2 },
+      timestamp: { relative: 80 },
+    },
+  ];
+  const speakerTimeline = [
+    {
+      participant: { id: 1 },
+      start_timestamp: { relative: 5 },
+      end_timestamp: { relative: 20 },
+    },
+    {
+      participant: { id: 1 },
+      start_timestamp: { relative: 40 },
+      end_timestamp: { relative: 50 },
+    },
+    {
+      participant: { id: 2 },
+      start_timestamp: { relative: 20 },
+      end_timestamp: { relative: 40 },
+    },
+    {
+      participant: { id: 2 },
+      start_timestamp: { relative: 50 },
+      end_timestamp: { relative: 60 },
+    },
+  ];
+  const recording = {
+    started_at: "2026-07-28T00:00:00.000Z",
+    completed_at: "2026-07-28T00:01:40.000Z",
+  };
+
+  it("calculates host, rejoin attendance, speaking time, and share", () => {
+    assert.deepEqual(
+      summarizeMeetingParticipation({
+        participants,
+        events,
+        speakerTimeline,
+        recording,
+      }),
+      {
+        durationSeconds: 100,
+        participantCount: 2,
+        totalSpeakingSeconds: 55,
+        participants: [
+          {
+            id: "1",
+            name: "Alex",
+            isHost: true,
+            speakingSeconds: 25,
+            attendanceSeconds: 90,
+            attendanceIntervals: [
+              { startSeconds: 0, endSeconds: 90 },
+            ],
+            speakingShare: 45.5,
+          },
+          {
+            id: "2",
+            name: "Jordan",
+            isHost: false,
+            speakingSeconds: 30,
+            attendanceSeconds: 60,
+            attendanceIntervals: [
+              { startSeconds: 10, endSeconds: 40 },
+              { startSeconds: 50, endSeconds: 80 },
+            ],
+            speakingShare: 54.5,
+          },
+        ],
+      },
+    );
+  });
+
+  it("does not invent attendance when join and leave events are missing", () => {
+    const summary = summarizeMeetingParticipation({
+      participants: [{ id: "person-1", name: "Alex" }],
+      events: [],
+      speakerTimeline: [
+        {
+          participant: { id: "person-1" },
+          start_timestamp: { relative: 4 },
+          end_timestamp: { relative: 2 },
+        },
+      ],
+      recording: {},
+    });
+
+    assert.equal(summary.durationSeconds, 0);
+    assert.equal(summary.totalSpeakingSeconds, 0);
+    assert.deepEqual(summary.participants[0].attendanceIntervals, []);
+    assert.equal(summary.participants[0].attendanceSeconds, null);
+    assert.equal(summary.participants[0].speakingShare, 0);
+  });
+
+  it("downloads and summarizes Recall participant artifacts", async () => {
+    const result = await getMeetingParticipation(
+      {
+        recallRegion: "us-west-2",
+        recallApiKey: "test-key",
+      },
+      "recording-1",
+      {
+        fetchImpl: async (url) => {
+          const requestUrl = String(url);
+          if (requestUrl.includes("/participant_events/")) {
+            assert.match(
+              requestUrl,
+              /recording_id=recording-1&status_code=done/,
+            );
+            return Response.json({
+              results: [
+                {
+                  recording: { id: "recording-1" },
+                  data: {
+                    participants_download_url:
+                      "https://example.test/participants",
+                    participant_events_download_url:
+                      "https://example.test/events",
+                    speaker_timeline_download_url:
+                      "https://example.test/timeline",
+                  },
+                },
+              ],
+            });
+          }
+          if (requestUrl.includes("/recording/recording-1/")) {
+            return Response.json(recording);
+          }
+          if (requestUrl.endsWith("/participants")) {
+            return Response.json(participants);
+          }
+          if (requestUrl.endsWith("/events")) {
+            return Response.json(events);
+          }
+          if (requestUrl.endsWith("/timeline")) {
+            return Response.json(speakerTimeline);
+          }
+          return new Response(null, { status: 404 });
+        },
+      },
+    );
+
+    assert.equal(result.participantCount, 2);
+    assert.equal(result.totalSpeakingSeconds, 55);
+    assert.deepEqual(
+      result.participants[1].attendanceIntervals,
+      [
+        { startSeconds: 10, endSeconds: 40 },
+        { startSeconds: 50, endSeconds: 80 },
+      ],
+    );
   });
 });
 
@@ -794,6 +983,88 @@ describe("Single-session webhook flow", () => {
     );
   });
 
+  it("stores participation beside the transcript workflow", async () => {
+    const store = createSessionStore();
+    store.session = {
+      id: "session-1",
+      stage: "processing",
+      botId: "bot-1",
+    };
+    const meetingParticipation = {
+      durationSeconds: 100,
+      participantCount: 2,
+      totalSpeakingSeconds: 55,
+      participants: [],
+    };
+
+    await processRecallEvent(
+      store,
+      {
+        event: "recording.done",
+        data: {
+          bot: {
+            id: "bot-1",
+            metadata: { discovery_session_id: "session-1" },
+          },
+          recording: { id: "recording-1" },
+        },
+      },
+      {},
+      {
+        createTranscript: async () => ({ id: "transcript-1" }),
+        getMeetingParticipation: async () => meetingParticipation,
+      },
+    );
+
+    assert.equal(store.session.stage, "transcribing");
+    assert.equal(store.session.transcriptId, "transcript-1");
+    assert.deepEqual(
+      store.session.meetingParticipation,
+      meetingParticipation,
+    );
+    assert.equal(
+      store.session.meetingParticipationUnavailable,
+      false,
+    );
+  });
+
+  it("continues transcription when participation is unavailable", async () => {
+    const store = createSessionStore();
+    store.session = {
+      id: "session-1",
+      stage: "processing",
+      botId: "bot-1",
+    };
+
+    await processRecallEvent(
+      store,
+      {
+        event: "recording.done",
+        data: {
+          bot: {
+            id: "bot-1",
+            metadata: { discovery_session_id: "session-1" },
+          },
+          recording: { id: "recording-1" },
+        },
+      },
+      {},
+      {
+        createTranscript: async () => ({ id: "transcript-1" }),
+        getMeetingParticipation: async () => {
+          throw new Error("artifact unavailable");
+        },
+      },
+    );
+
+    assert.equal(store.session.stage, "transcribing");
+    assert.equal(store.session.transcriptId, "transcript-1");
+    assert.equal(
+      store.session.meetingParticipationUnavailable,
+      true,
+    );
+  });
+
   it("uses the session selection for generation and Markdown", async () => {
     const store = createSessionStore();
     store.session = {
@@ -901,6 +1172,12 @@ describe("Single-session webhook flow", () => {
         createTranscriptCalls += 1;
         return { id: "transcript-1" };
       },
+      getMeetingParticipation: async () => ({
+        durationSeconds: 90,
+        participantCount: 2,
+        totalSpeakingSeconds: 45,
+        participants: [],
+      }),
       downloadTranscript: async () => [],
       generateBrief: async () => ({}),
       getRecordingResponse: async () => {
@@ -1101,6 +1378,15 @@ describe("Single-session webhook flow", () => {
       assert.equal(createTranscriptCalls, 1);
       assert.equal(store.session.recordingId, "recording-1");
       assert.equal(store.session.transcriptId, "transcript-1");
+
+      const currentSession = await (
+        await fetch(`${baseUrl}/api/session`)
+      ).json();
+      assert.equal(currentSession.meetingParticipation.participantCount, 2);
+      assert.equal(
+        currentSession.meetingParticipationUnavailable,
+        false,
+      );
     });
   });
 });

@@ -29,13 +29,30 @@ authoritative research.
    participants in chat, and records the interview.
 3. Verified Recall webhooks communicate capture and processing state.
 4. After the recording is ready, the application requests a Recall
-   post-meeting transcript.
-5. The transcript's word-level timestamps are deterministically grouped into
+   post-meeting transcript and reads Recall's meeting-participation artifacts.
+5. The application presents meeting duration, attendees, attendance windows,
+   and speaking activity as meeting context outside the generated brief.
+6. The transcript's word-level timestamps are deterministically grouped into
    short evidence excerpts and converted into the selected sections of a
    structured customer-discovery brief.
-6. The user reviews each signal beside timestamped evidence and recording
+7. The user reviews each signal beside timestamped evidence and recording
    playback.
-7. The user can copy the reviewed brief as Markdown.
+8. The user can copy the reviewed brief as Markdown.
+
+## Meeting participation
+
+The result includes a separate, non-generated meeting context card. It shows:
+
+- Recorded duration and attendee count
+- Participant names and the meeting host when Recall identifies one
+- Total attendance time and separate attendance windows after a leave/rejoin
+- Speaking time and each participant's share of captured speaking activity
+
+This information comes from Recall's participant list, participant events, and
+speaker timeline. It is not included in the discovery brief or copied Markdown.
+If attendance events are incomplete, the application says that timing is
+unavailable instead of estimating it. If the participation artifact is
+unavailable, brief generation continues.
 
 ## Discovery brief
 
@@ -69,6 +86,8 @@ it does not reduce what Recall records or transcribes.
 - The meeting host remains responsible for participant notice and consent.
 - An uploaded camera card is passed to Recall for the current bot and is not
   retained as an application asset.
+- Participation analytics describe captured meeting activity; they do not
+  measure engagement, influence, or performance.
 
 ## Recall capabilities
 
@@ -79,6 +98,7 @@ The core experience uses:
 - Mixed-video recording
 - Post-meeting transcription
 - Speaker-attributed transcript timestamps
+- Participant list, join/leave events, and speaker timeline
 - Recording playback
 - Automatic chat notification when the bot joins
 - Per-meeting bot naming and static camera output
@@ -102,6 +122,6 @@ require:
 
 ## Success
 
-A user can record a short customer interview and receive a readable discovery
-brief whose important claims can be checked against the transcript and
-recording.
+A user can record a short customer interview, understand who participated, and
+receive a readable discovery brief whose important claims can be checked
+against the transcript and recording.

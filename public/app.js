@@ -34,6 +34,15 @@ const statusDot = document.querySelector("#status-dot");
 const statusTitle = document.querySelector("#status-title");
 const statusDetail = document.querySelector("#status-detail");
 const result = document.querySelector("#result");
+const participationPanel = document.querySelector("#participation-panel");
+const participationSummary = document.querySelector(
+  "#participation-summary",
+);
+const participantList = document.querySelector("#participant-list");
+const participationNote = document.querySelector(".participation-note");
+const participationUnavailable = document.querySelector(
+  "#participation-unavailable",
+);
 const recording = document.querySelector("#recording");
 const copyButton = document.querySelector("#copy-button");
 const evidenceList = document.querySelector("#evidence-list");
@@ -224,6 +233,160 @@ function formatTime(seconds) {
   return `${minutes}:${String(wholeSeconds % 60).padStart(2, "0")}`;
 }
 
+function formatDuration(seconds) {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds)) {
+    return "Unavailable";
+  }
+
+  const wholeSeconds = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(wholeSeconds / 3600);
+  const minutes = Math.floor((wholeSeconds % 3600) / 60);
+  const remainder = wholeSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(
+      remainder,
+    ).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function participationMetric(label, value) {
+  const metric = document.createElement("div");
+  metric.className = "participation-metric";
+
+  const metricLabel = document.createElement("span");
+  metricLabel.textContent = label;
+  const metricValue = document.createElement("strong");
+  metricValue.textContent = value;
+
+  metric.append(metricLabel, metricValue);
+  return metric;
+}
+
+function attendanceDescription(participant) {
+  if (participant.attendanceSeconds === null) {
+    return "Join and leave timing unavailable";
+  }
+
+  const intervals = Array.isArray(participant.attendanceIntervals)
+    ? participant.attendanceIntervals
+    : [];
+  if (intervals.length === 0) return "No attendance interval captured";
+
+  const windows = intervals
+    .map(
+      (interval) =>
+        `${formatDuration(interval.startSeconds)}–${formatDuration(
+          interval.endSeconds,
+        )}`,
+    )
+    .join(" · ");
+  return `Present: ${windows}`;
+}
+
+function participantNode(participant) {
+  const item = document.createElement("article");
+  item.className = "participant";
+
+  const heading = document.createElement("div");
+  heading.className = "participant-heading";
+  const name = document.createElement("h3");
+  name.textContent = participant.name;
+  heading.append(name);
+
+  if (participant.isHost) {
+    const host = document.createElement("span");
+    host.className = "host-badge";
+    host.textContent = "Host";
+    heading.append(host);
+  }
+
+  const metrics = document.createElement("div");
+  metrics.className = "participant-metrics";
+  metrics.append(
+    participationMetric(
+      "Attendance",
+      participant.attendanceSeconds === null
+        ? "Unavailable"
+        : formatDuration(participant.attendanceSeconds),
+    ),
+    participationMetric(
+      "Speaking",
+      formatDuration(participant.speakingSeconds),
+    ),
+    participationMetric(
+      "Speaking share",
+      `${participant.speakingShare}%`,
+    ),
+  );
+
+  const attendance = document.createElement("p");
+  attendance.className = "attendance-timeline";
+  attendance.textContent = attendanceDescription(participant);
+
+  const share = Math.min(
+    100,
+    Math.max(0, Number(participant.speakingShare) || 0),
+  );
+  const track = document.createElement("div");
+  track.className = "speaking-track";
+  track.setAttribute("role", "progressbar");
+  track.setAttribute(
+    "aria-label",
+    `${participant.name} speaking share`,
+  );
+  track.setAttribute("aria-valuemin", "0");
+  track.setAttribute("aria-valuemax", "100");
+  track.setAttribute("aria-valuenow", String(share));
+  const fill = document.createElement("span");
+  fill.style.width = `${share}%`;
+  track.append(fill);
+
+  item.append(heading, metrics, attendance, track);
+  return item;
+}
+
+function renderMeetingParticipation(session) {
+  participationSummary.replaceChildren();
+  participantList.replaceChildren();
+  participationUnavailable.hidden = true;
+  participationNote.hidden = true;
+
+  const participation = session.meetingParticipation;
+  if (!participation) {
+    participationPanel.hidden =
+      !session.meetingParticipationUnavailable;
+    participationUnavailable.hidden =
+      !session.meetingParticipationUnavailable;
+    return;
+  }
+
+  const participants = Array.isArray(participation.participants)
+    ? participation.participants
+    : [];
+  participationSummary.append(
+    participationMetric(
+      "Recorded duration",
+      formatDuration(participation.durationSeconds),
+    ),
+    participationMetric(
+      "Attendees",
+      String(participation.participantCount ?? participants.length),
+    ),
+    participationMetric(
+      "Captured speaking",
+      formatDuration(participation.totalSpeakingSeconds),
+    ),
+  );
+  participants.forEach((participant) =>
+    participantList.append(participantNode(participant)),
+  );
+
+  participationNote.hidden = false;
+  participationPanel.hidden = false;
+}
+
 function emptyMessage() {
   const message = document.createElement("p");
   message.className = "empty-message";
@@ -326,6 +489,7 @@ function renderEvidence(transcript) {
 function renderBrief(session) {
   currentTranscript = session.transcript ?? [];
   currentMarkdown = session.markdown ?? "";
+  renderMeetingParticipation(session);
   const brief = session.brief;
   if (!brief) return;
   const selected = new Set(session.sections ?? defaultSections);

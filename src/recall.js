@@ -139,6 +139,7 @@ export async function createBot(
         metadata: { discovery_session_id: sessionId },
         recording_config: {
           video_mixed_mp4: {},
+          participant_events: {},
         },
         ...(cameraCard
           ? {
@@ -224,6 +225,275 @@ export async function downloadTranscript(
     );
   }
   return download.json();
+}
+
+function finiteSeconds(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
+}
+
+function participantKey(participant) {
+  const id = participant?.id;
+  return typeof id === "number" || typeof id === "string"
+    ? String(id)
+    : null;
+}
+
+function recordingDuration(recording, events, speakerTimeline) {
+  const startedAt = Date.parse(recording?.started_at);
+  const completedAt = Date.parse(recording?.completed_at);
+  if (
+    Number.isFinite(startedAt) &&
+    Number.isFinite(completedAt) &&
+    completedAt >= startedAt
+  ) {
+    return (completedAt - startedAt) / 1000;
+  }
+
+  const validSpeakerEnds = speakerTimeline.flatMap((entry) => {
+    const startSeconds = finiteSeconds(
+      entry?.start_timestamp?.relative,
+    );
+    const endSeconds = finiteSeconds(entry?.end_timestamp?.relative);
+    return startSeconds !== null &&
+      endSeconds !== null &&
+      endSeconds >= startSeconds
+      ? [endSeconds]
+      : [];
+  });
+
+  return Math.max(
+    0,
+    ...events.map(
+      (event) => finiteSeconds(event?.timestamp?.relative) ?? 0,
+    ),
+    ...validSpeakerEnds,
+  );
+}
+
+function attendanceFor(events, durationSeconds) {
+  const ordered = events
+    .filter((event) => event?.action === "join" || event?.action === "leave")
+    .map((event) => ({
+      action: event.action,
+      seconds: finiteSeconds(event?.timestamp?.relative),
+    }))
+    .filter((event) => event.seconds !== null)
+    .sort((left, right) => left.seconds - right.seconds);
+
+  if (ordered.length === 0) {
+    return { attendanceSeconds: null, attendanceIntervals: [] };
+  }
+
+  const intervals = [];
+  let joinedAt = null;
+  let incomplete = false;
+
+  for (const event of ordered) {
+    if (event.action === "join") {
+      if (joinedAt === null) joinedAt = event.seconds;
+      continue;
+    }
+
+    if (joinedAt === null) {
+      incomplete = true;
+      continue;
+    }
+
+    const endSeconds = Math.max(joinedAt, event.seconds);
+    intervals.push({ startSeconds: joinedAt, endSeconds });
+    joinedAt = null;
+  }
+
+  if (joinedAt !== null) {
+    intervals.push({
+      startSeconds: joinedAt,
+      endSeconds: Math.max(joinedAt, durationSeconds),
+    });
+  }
+
+  return {
+    attendanceSeconds: incomplete
+      ? null
+      : intervals.reduce(
+          (total, interval) =>
+            total + interval.endSeconds - interval.startSeconds,
+          0,
+        ),
+    attendanceIntervals: intervals,
+  };
+}
+
+export function summarizeMeetingParticipation({
+  participants,
+  events,
+  speakerTimeline,
+  recording,
+}) {
+  const participantList = Array.isArray(participants) ? participants : [];
+  const participantEvents = Array.isArray(events) ? events : [];
+  const timeline = Array.isArray(speakerTimeline) ? speakerTimeline : [];
+  const durationSeconds = recordingDuration(
+    recording,
+    participantEvents,
+    timeline,
+  );
+
+  const eventsByParticipant = new Map();
+  for (const event of participantEvents) {
+    const key = participantKey(event?.participant);
+    if (!key) continue;
+    const current = eventsByParticipant.get(key) ?? [];
+    current.push(event);
+    eventsByParticipant.set(key, current);
+  }
+
+  const speakingByParticipant = new Map();
+  for (const entry of timeline) {
+    const key = participantKey(entry?.participant);
+    const startSeconds = finiteSeconds(
+      entry?.start_timestamp?.relative,
+    );
+    const endSeconds = finiteSeconds(entry?.end_timestamp?.relative);
+    if (
+      !key ||
+      startSeconds === null ||
+      endSeconds === null ||
+      endSeconds < startSeconds
+    ) {
+      continue;
+    }
+    speakingByParticipant.set(
+      key,
+      (speakingByParticipant.get(key) ?? 0) +
+        endSeconds -
+        startSeconds,
+    );
+  }
+
+  const normalizedParticipants = participantList.flatMap(
+    (participant, index) => {
+      const key = participantKey(participant);
+      if (!key) return [];
+
+      const name =
+        typeof participant?.name === "string" && participant.name.trim()
+          ? participant.name.trim()
+          : `Participant ${index + 1}`;
+      const attendance = attendanceFor(
+        eventsByParticipant.get(key) ?? [],
+        durationSeconds,
+      );
+
+      return [
+        {
+          id: key,
+          name,
+          isHost: participant?.is_host === true,
+          speakingSeconds: speakingByParticipant.get(key) ?? 0,
+          ...attendance,
+        },
+      ];
+    },
+  );
+
+  const totalSpeakingSeconds = normalizedParticipants.reduce(
+    (total, participant) => total + participant.speakingSeconds,
+    0,
+  );
+
+  return {
+    durationSeconds,
+    participantCount: normalizedParticipants.length,
+    totalSpeakingSeconds,
+    participants: normalizedParticipants.map((participant) => ({
+      ...participant,
+      speakingShare:
+        totalSpeakingSeconds > 0
+          ? Math.round(
+              (participant.speakingSeconds / totalSpeakingSeconds) * 1000,
+            ) / 10
+          : 0,
+    })),
+  };
+}
+
+function downloadUrl(value) {
+  if (typeof value !== "string") return null;
+  try {
+    return new URL(value).protocol === "https:" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+async function downloadJson(url, fetchImpl) {
+  const response = await fetchImpl(url);
+  if (!response.ok) {
+    throw new Error(
+      `Recall participation download failed with status ${response.status}`,
+    );
+  }
+  return response.json();
+}
+
+export async function getMeetingParticipation(
+  config,
+  recordingId,
+  options = {},
+) {
+  const encodedRecordingId = encodeURIComponent(recordingId);
+  const [artifactResponse, recordingResponse] = await Promise.all([
+    recallRequest(
+      config,
+      `/participant_events/?recording_id=${encodedRecordingId}&status_code=done`,
+      {},
+      options,
+    ),
+    recallRequest(
+      config,
+      `/recording/${encodedRecordingId}/`,
+      {},
+      options,
+    ),
+  ]);
+  const [artifacts, recording] = await Promise.all([
+    artifactResponse.json(),
+    recordingResponse.json(),
+  ]);
+  const artifact = Array.isArray(artifacts?.results)
+    ? artifacts.results.find(
+        (candidate) => candidate?.recording?.id === recordingId,
+      )
+    : null;
+  const participantsUrl = downloadUrl(
+    artifact?.data?.participants_download_url,
+  );
+  const eventsUrl = downloadUrl(
+    artifact?.data?.participant_events_download_url,
+  );
+  const speakerTimelineUrl = downloadUrl(
+    artifact?.data?.speaker_timeline_download_url,
+  );
+
+  if (!participantsUrl || !eventsUrl || !speakerTimelineUrl) {
+    throw new Error("Recall participation data is not ready");
+  }
+
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const [participants, events, speakerTimeline] = await Promise.all([
+    downloadJson(participantsUrl, fetchImpl),
+    downloadJson(eventsUrl, fetchImpl),
+    downloadJson(speakerTimelineUrl, fetchImpl),
+  ]);
+
+  return summarizeMeetingParticipation({
+    participants,
+    events,
+    speakerTimeline,
+    recording,
+  });
 }
 
 export async function getRecordingResponse(

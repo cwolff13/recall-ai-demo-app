@@ -405,6 +405,41 @@
       </section>
 
       <section id="result" class="result" hidden>
+        <section
+          id="participation-panel"
+          class="participation-panel"
+          aria-labelledby="participation-heading"
+          hidden
+        >
+          <div class="participation-heading">
+            <div>
+              <p class="eyebrow">Recall meeting context</p>
+              <h2 id="participation-heading">Meeting participation</h2>
+              <p class="participation-intro">
+                Who attended and how the recorded conversation was shared.
+                This is meeting context, not part of the generated brief.
+              </p>
+            </div>
+          </div>
+          <div
+            id="participation-summary"
+            class="participation-summary"
+          ></div>
+          <div id="participant-list" class="participant-list"></div>
+          <p class="participation-note">
+            Speaking share is based on the speaking activity captured by
+            Recall.
+          </p>
+          <p
+            id="participation-unavailable"
+            class="participation-unavailable"
+            hidden
+          >
+            Participation analytics were not available for this recording.
+            The discovery brief is still complete.
+          </p>
+        </section>
+
         <div class="result-heading">
           <div>
             <p class="eyebrow">Source-linked meeting notes</p>

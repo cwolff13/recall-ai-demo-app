@@ -1,13 +1,14 @@
 # Customer Discovery Brief
 
-A small Recall.ai demo that turns one customer interview into a source-linked
-discovery brief.
+A small Recall.ai demo that shows who participated in a customer interview and
+turns the conversation into a source-linked discovery brief.
 
 Paste in a Google Meet URL, optionally customize the bot's name and camera card,
 choose the sections you want, optionally define one custom section, and send a
-Recall bot to the meeting. After the call, the app organizes the conversation
-into a source-linked brief tailored to those choices. Each result links back to
-the supporting transcript moment and recording.
+Recall bot to the meeting. After the call, the app shows attendance and speaking
+activity, then organizes the conversation into a source-linked brief tailored
+to those choices. Each brief item links back to the supporting transcript
+moment and recording.
 
 This workflow shows how a Recall customer could build a useful product on top
 of meeting capture, transcription, webhooks, and recording playback.
@@ -49,8 +50,8 @@ Open your `PUBLIC_API_BASE_URL`
 3. Send the bot and admit it if prompted.
 4. Confirm participant consent, then hold the interview.
 5. End the meeting and keep the app running while Recall processes it.
-6. Review the generated brief and use its citations to revisit the source
-   conversation.
+6. Review the separate meeting participation card, then use the brief's
+   citations to revisit the source conversation.
 
 The demo supports one in-memory meeting at a time. It intentionally omits
 authentication, durable storage, and concurrent processing.
@@ -87,7 +88,6 @@ npm run check
 npm test
 ```
 
-These checks cover webhook handling, bot appearance validation, transcript
-evidence, standard and custom section validation, selective generation, and
-Markdown with automated tests. A real meeting is still required to verify the
-complete Recall workflow.
+These checks cover webhook handling, participant analytics, transcript
+evidence, brief selection, and Markdown. A real meeting is still required to
+verify the complete Recall workflow.

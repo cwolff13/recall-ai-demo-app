@@ -634,6 +634,152 @@ h3 {
   padding-top: 56px;
 }
 
+.participation-panel {
+  margin-bottom: 64px;
+  padding: 28px;
+  border: 1px solid #cbdcd1;
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgb(228 243 234 / 75%), transparent 62%),
+    var(--panel);
+  box-shadow: 0 18px 50px rgb(23 34 28 / 7%);
+}
+
+.participation-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.participation-heading h2 {
+  font-size: clamp(2rem, 4vw, 3.25rem);
+}
+
+.participation-intro {
+  max-width: 650px;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.participation-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 18px;
+  overflow: hidden;
+  border: 1px solid rgb(31 107 72 / 18%);
+  border-radius: 13px;
+  background: rgb(255 255 255 / 72%);
+}
+
+.participation-metric {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.participation-summary .participation-metric {
+  padding: 14px 16px;
+  border-right: 1px solid rgb(31 107 72 / 14%);
+}
+
+.participation-summary .participation-metric:last-child {
+  border-right: 0;
+}
+
+.participation-metric span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.participation-metric strong {
+  overflow: hidden;
+  font-size: 1rem;
+  text-overflow: ellipsis;
+}
+
+.participant-list {
+  display: grid;
+  gap: 10px;
+}
+
+.participant {
+  padding: 17px 18px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: white;
+}
+
+.participant-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.participant-heading h3 {
+  margin: 0;
+}
+
+.host-badge {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.participant-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.attendance-timeline {
+  margin: 13px 0 8px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.speaking-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5ebe7;
+}
+
+.speaking-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.participation-note,
+.participation-unavailable {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.participation-unavailable {
+  padding: 15px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  font-size: 0.82rem;
+}
+
 .result-heading {
   display: flex;
   align-items: end;
@@ -799,6 +945,10 @@ video {
     gap: 34px;
   }
 
+  .participation-panel {
+    margin-bottom: 52px;
+  }
+
   .section-options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -821,6 +971,31 @@ video {
   .result-heading {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .participation-panel {
+    padding: 22px 18px;
+  }
+
+  .participation-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .participation-summary .participation-metric {
+    border-right: 0;
+    border-bottom: 1px solid rgb(31 107 72 / 14%);
+  }
+
+  .participation-summary .participation-metric:last-child {
+    border-bottom: 0;
+  }
+
+  .participant-metrics {
+    gap: 10px;
+  }
+
+  .participant-metrics .participation-metric strong {
+    font-size: 0.88rem;
   }
 
   .input-row button {

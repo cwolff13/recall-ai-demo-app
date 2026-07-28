@@ -7,6 +7,7 @@ import {
   createBot,
   createTranscript,
   downloadTranscript,
+  getMeetingParticipation,
   getRecordingResponse,
   verifyRecallRequest,
   webhookId,
@@ -201,12 +202,28 @@ export async function processRecallEvent(
       session.transcriptRequested = true;
       session.stage = "transcribing";
 
-      const transcript = await services.createTranscript(
-        config,
-        recordingId,
-        session.id,
-      );
-      session.transcriptId = transcript.id;
+      const [transcriptResult, participationResult] =
+        await Promise.allSettled([
+          services.createTranscript(
+            config,
+            recordingId,
+            session.id,
+          ),
+          services.getMeetingParticipation(config, recordingId),
+        ]);
+
+      if (participationResult.status === "fulfilled") {
+        session.meetingParticipation = participationResult.value;
+        session.meetingParticipationUnavailable = false;
+      } else {
+        session.meetingParticipationUnavailable = true;
+      }
+
+      if (transcriptResult.status === "rejected") {
+        throw transcriptResult.reason;
+      }
+
+      session.transcriptId = transcriptResult.value.id;
       return;
     }
 
@@ -260,6 +277,9 @@ function publicSession(session) {
     customSection: session.customSection ?? null,
     botName: session.botName ?? DEFAULT_BOT_NAME,
     hasRecording: Boolean(session.recordingId),
+    meetingParticipation: session.meetingParticipation ?? null,
+    meetingParticipationUnavailable:
+      session.meetingParticipationUnavailable === true,
   };
 }
 
@@ -315,6 +335,7 @@ const defaultServices = {
   createTranscript,
   downloadTranscript,
   generateBrief,
+  getMeetingParticipation,
   getRecordingResponse,
 };
 
