@@ -1,0 +1,18 @@
+{
+  "name": "recall-customer-discovery-brief",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --watch src/server.js",
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "check": "node --check src/server.js && node --check src/recall.js && node --check src/brief.js && node --check public/app.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}

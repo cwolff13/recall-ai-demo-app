@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Turn a customer interview into a source-linked discovery brief with Recall.ai."
+    />
+    <title>Customer Discovery Brief</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <p class="eyebrow">Powered by Recall.ai</p>
+        <h1>Customer Discovery Brief</h1>
+        <p class="hero-copy">
+          Send a meeting bot to your interview. Get back customer needs,
+          requests, and follow-ups you can verify against the conversation.
+        </p>
+
+        <form id="meeting-form" class="meeting-form">
+          <label for="meeting-url">Meeting URL</label>
+          <div class="input-row">
+            <input
+              id="meeting-url"
+              name="meetingUrl"
+              type="url"
+              placeholder="https://meet.google.com/..."
+              autocomplete="off"
+              required
+            />
+            <button id="submit-button" type="submit">Send bot</button>
+          </div>
+          <p class="form-note">
+            The meeting host is responsible for participant consent.
+          </p>
+        </form>
+      </header>
+
+      <section id="status-card" class="status-card" aria-live="polite">
+        <span id="status-dot" class="status-dot"></span>
+        <div>
+          <p id="status-title" class="status-title">Ready for a meeting</p>
+          <p id="status-detail" class="status-detail">
+            Paste a supported meeting URL to begin.
+          </p>
+        </div>
+      </section>
+
+      <section id="result" class="result" hidden>
+        <div class="result-heading">
+          <div>
+            <p class="eyebrow">Reviewable output</p>
+            <h2>Discovery brief</h2>
+          </div>
+          <button id="copy-button" class="secondary-button" type="button">
+            Copy Markdown
+          </button>
+        </div>
+
+        <div class="result-grid">
+          <aside class="source-column">
+            <div class="video-frame">
+              <video id="recording" controls preload="metadata"></video>
+            </div>
+            <div>
+              <h3>Source evidence</h3>
+              <p class="section-hint">
+                Select a timestamp to jump to that moment.
+              </p>
+              <ol id="evidence-list" class="evidence-list"></ol>
+            </div>
+          </aside>
+
+          <article class="brief-column">
+            <section class="brief-section">
+              <h3>Summary</h3>
+              <div id="summary"></div>
+            </section>
+
+            <section class="brief-section">
+              <h3>Pain points</h3>
+              <div id="pain-points"></div>
+            </section>
+
+            <section class="brief-section">
+              <h3>Desired outcomes</h3>
+              <div id="goals"></div>
+            </section>
+
+            <section class="brief-section">
+              <h3>Product requests</h3>
+              <div id="requests"></div>
+            </section>
+
+            <section class="brief-section">
+              <h3>Follow-ups</h3>
+              <div id="follow-ups"></div>
+            </section>
+
+            <section class="brief-section">
+              <h3>Open questions</h3>
+              <div id="open-questions"></div>
+            </section>
+          </article>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
