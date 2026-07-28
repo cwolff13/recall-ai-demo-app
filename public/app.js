@@ -75,8 +75,8 @@ const stageCopy = {
     "The source-linked customer signals are being organized.",
   ],
   complete: [
-    "Brief ready",
-    "Review each claim against its source evidence.",
+    "Your brief is ready",
+    "Review the generated notes against their source evidence.",
   ],
   failed: [
     "Processing stopped",
