@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
 import { once } from "node:events";
 import { after, before, describe, it } from "node:test";
 import {
@@ -26,25 +25,19 @@ import {
   eventBelongsToSession,
   processRecallEvent,
 } from "../src/server.js";
-
-const secret = `whsec_${Buffer.from("test signing key").toString("base64")}`;
-
-function signedHeaders(body, id = "message-1") {
-  const timestamp = "1731705121";
-  const signature = createHmac(
-    "sha256",
-    Buffer.from(secret.slice("whsec_".length), "base64"),
-  )
-    .update(`${id}.${timestamp}.${body}`)
-    .digest("base64");
-
-  return new Headers({
-    "content-type": "application/json",
-    "webhook-id": id,
-    "webhook-timestamp": timestamp,
-    "webhook-signature": `v1,${signature}`,
-  });
-}
+import {
+  TEST_SECRET,
+  openRouterResponse,
+  participantEvent,
+  postSession,
+  recordingDoneEvent,
+  signedHeaders,
+  sourceClaim,
+  speakerInterval,
+  transcriptParagraph,
+  transcriptWord,
+  validBrief,
+} from "./helpers.js";
 
 describe("Recall request verification", () => {
   it("accepts the exact signed raw payload and one matching rotated signature", () => {
@@ -55,16 +48,16 @@ describe("Recall request verification", () => {
       `v1,${Buffer.alloc(32).toString("base64")} ${headers.get("webhook-signature")}`,
     );
 
-    assert.equal(verifyRecallRequest(secret, headers, body), true);
+    assert.equal(verifyRecallRequest(TEST_SECRET, headers, body), true);
     assert.equal(
-      verifyRecallRequest(secret, headers, `${body}\n`),
+      verifyRecallRequest(TEST_SECRET, headers, `${body}\n`),
       false,
     );
   });
 
   it("rejects missing verification headers", () => {
     assert.equal(
-      verifyRecallRequest(secret, new Headers(), "{}"),
+      verifyRecallRequest(TEST_SECRET, new Headers(), "{}"),
       false,
     );
   });
@@ -168,58 +161,18 @@ describe("Meeting participation", () => {
     { id: 2, name: "Jordan", is_host: false },
   ];
   const events = [
-    {
-      action: "join",
-      participant: { id: 1 },
-      timestamp: { relative: 0 },
-    },
-    {
-      action: "leave",
-      participant: { id: 1 },
-      timestamp: { relative: 90 },
-    },
-    {
-      action: "join",
-      participant: { id: 2 },
-      timestamp: { relative: 10 },
-    },
-    {
-      action: "leave",
-      participant: { id: 2 },
-      timestamp: { relative: 40 },
-    },
-    {
-      action: "join",
-      participant: { id: 2 },
-      timestamp: { relative: 50 },
-    },
-    {
-      action: "leave",
-      participant: { id: 2 },
-      timestamp: { relative: 80 },
-    },
+    participantEvent("join", 1, 0),
+    participantEvent("leave", 1, 90),
+    participantEvent("join", 2, 10),
+    participantEvent("leave", 2, 40),
+    participantEvent("join", 2, 50),
+    participantEvent("leave", 2, 80),
   ];
   const speakerTimeline = [
-    {
-      participant: { id: 1 },
-      start_timestamp: { relative: 5 },
-      end_timestamp: { relative: 20 },
-    },
-    {
-      participant: { id: 1 },
-      start_timestamp: { relative: 40 },
-      end_timestamp: { relative: 50 },
-    },
-    {
-      participant: { id: 2 },
-      start_timestamp: { relative: 20 },
-      end_timestamp: { relative: 40 },
-    },
-    {
-      participant: { id: 2 },
-      start_timestamp: { relative: 50 },
-      end_timestamp: { relative: 60 },
-    },
+    speakerInterval(1, 5, 20),
+    speakerInterval(1, 40, 50),
+    speakerInterval(2, 20, 40),
+    speakerInterval(2, 50, 60),
   ];
   const recording = {
     started_at: "2026-07-28T00:00:00.000Z",
@@ -271,13 +224,7 @@ describe("Meeting participation", () => {
     const summary = summarizeMeetingParticipation({
       participants: [{ id: "person-1", name: "Alex" }],
       events: [],
-      speakerTimeline: [
-        {
-          participant: { id: "person-1" },
-          start_timestamp: { relative: 4 },
-          end_timestamp: { relative: 2 },
-        },
-      ],
+      speakerTimeline: [speakerInterval("person-1", 4, 2)],
       recording: {},
     });
 
@@ -350,21 +297,10 @@ describe("Meeting participation", () => {
 
 describe("Transcript and brief evidence", () => {
   const transcript = normalizeTranscript([
-    {
-      participant: { name: "Customer" },
-      words: [
-        {
-          text: "Reporting",
-          start_timestamp: { relative: 4.2 },
-          end_timestamp: { relative: 4.8 },
-        },
-        {
-          text: "is slow.",
-          start_timestamp: { relative: 4.9 },
-          end_timestamp: { relative: 6.1 },
-        },
-      ],
-    },
+    transcriptParagraph([
+      transcriptWord("Reporting", 4.2, 4.8),
+      transcriptWord("is slow.", 4.9, 6.1),
+    ]),
   ]);
 
   it("normalizes speaker text, timestamps, and source IDs", () => {
@@ -381,31 +317,12 @@ describe("Transcript and brief evidence", () => {
 
   it("splits one speaker into timestamped sentence evidence", () => {
     const segments = normalizeTranscript([
-      {
-        participant: { name: "Customer" },
-        words: [
-          {
-            text: "Reporting",
-            start_timestamp: { relative: 3.4 },
-            end_timestamp: { relative: 3.9 },
-          },
-          {
-            text: "is slow.",
-            start_timestamp: { relative: 4 },
-            end_timestamp: { relative: 4.8 },
-          },
-          {
-            text: "Exports",
-            start_timestamp: { relative: 5.1 },
-            end_timestamp: { relative: 5.5 },
-          },
-          {
-            text: "would help.",
-            start_timestamp: { relative: 5.6 },
-            end_timestamp: { relative: 6.4 },
-          },
-        ],
-      },
+      transcriptParagraph([
+        transcriptWord("Reporting", 3.4, 3.9),
+        transcriptWord("is slow.", 4, 4.8),
+        transcriptWord("Exports", 5.1, 5.5),
+        transcriptWord("would help.", 5.6, 6.4),
+      ]),
     ]);
 
     assert.deepEqual(segments, [
@@ -428,21 +345,10 @@ describe("Transcript and brief evidence", () => {
 
   it("splits on pauses even when punctuation is missing", () => {
     const segments = normalizeTranscript([
-      {
-        participant: { name: "Customer" },
-        words: [
-          {
-            text: "First thought",
-            start_timestamp: { relative: 1 },
-            end_timestamp: { relative: 2 },
-          },
-          {
-            text: "Second thought",
-            start_timestamp: { relative: 4 },
-            end_timestamp: { relative: 5 },
-          },
-        ],
-      },
+      transcriptParagraph([
+        transcriptWord("First thought", 1, 2),
+        transcriptWord("Second thought", 4, 5),
+      ]),
     ]);
 
     assert.deepEqual(
@@ -467,13 +373,13 @@ describe("Transcript and brief evidence", () => {
   });
 
   it("bounds punctuation-free segments and sanitizes timestamps", () => {
-    const words = Array.from({ length: 51 }, (_, index) => ({
-      text: `word-${index + 1}`,
-      start_timestamp: {
-        relative: index === 0 ? Number.NEGATIVE_INFINITY : index / 10,
-      },
-      end_timestamp: { relative: (index + 1) / 10 },
-    }));
+    const words = Array.from({ length: 51 }, (_, index) =>
+      transcriptWord(
+        `word-${index + 1}`,
+        index === 0 ? Number.NEGATIVE_INFINITY : index / 10,
+        (index + 1) / 10,
+      ),
+    );
 
     const segments = normalizeTranscript({
       data: [
@@ -494,14 +400,15 @@ describe("Transcript and brief evidence", () => {
 
   it("bounds a long punctuation-free segment by duration", () => {
     const segments = normalizeTranscript([
-      {
-        participant: { name: "Customer" },
-        words: [0, 10, 20, 30].map((startSeconds, index) => ({
-          text: `thought-${index + 1}`,
-          start_timestamp: { relative: startSeconds },
-          end_timestamp: { relative: startSeconds + 10 },
-        })),
-      },
+      transcriptParagraph(
+        [0, 10, 20, 30].map((startSeconds, index) =>
+          transcriptWord(
+            `thought-${index + 1}`,
+            startSeconds,
+            startSeconds + 10,
+          ),
+        ),
+      ),
     ]);
 
     assert.deepEqual(
@@ -527,26 +434,13 @@ describe("Transcript and brief evidence", () => {
 
   it("numbers evidence across speaker entries", () => {
     const segments = normalizeTranscript([
-      {
-        participant: { name: "Interviewer" },
-        words: [
-          {
-            text: "What changed?",
-            start_timestamp: { relative: 1 },
-            end_timestamp: { relative: 2 },
-          },
-        ],
-      },
-      {
-        participant: { name: "Customer" },
-        words: [
-          {
-            text: "Reporting changed.",
-            start_timestamp: { relative: 3 },
-            end_timestamp: { relative: 4 },
-          },
-        ],
-      },
+      transcriptParagraph(
+        [transcriptWord("What changed?", 1, 2)],
+        "Interviewer",
+      ),
+      transcriptParagraph([
+        transcriptWord("Reporting changed.", 3, 4),
+      ]),
     ]);
 
     assert.deepEqual(
@@ -559,31 +453,7 @@ describe("Transcript and brief evidence", () => {
   });
 
   it("accepts a source-linked brief and rejects unknown evidence", () => {
-    const brief = {
-      summary: { text: "Reporting is slow.", sourceIds: ["S1"] },
-      signals: [
-        {
-          kind: "pain_point",
-          text: "Manual reporting is slow.",
-          sourceIds: ["S1"],
-        },
-      ],
-      followUps: [
-        {
-          owner: null,
-          action: "Review the reporting workflow.",
-          dueDate: null,
-          sourceIds: ["S1"],
-        },
-      ],
-      openQuestions: [
-        {
-          text: "How often is reporting required?",
-          sourceIds: ["S1"],
-        },
-      ],
-      customItems: [],
-    };
+    const brief = validBrief();
 
     assert.equal(validateBrief(brief, transcript), brief);
     assert.throws(
@@ -591,7 +461,7 @@ describe("Transcript and brief evidence", () => {
         validateBrief(
           {
             ...brief,
-            summary: { text: "Unsupported", sourceIds: ["S9"] },
+            summary: sourceClaim("Unsupported", ["S9"]),
           },
           transcript,
         ),
@@ -692,18 +562,15 @@ describe("Transcript and brief evidence", () => {
       name: "Competitive signals",
       guidance: "Capture mentions of competitors and alternatives.",
     };
-    const customBrief = {
+    const customBrief = validBrief({
       summary: null,
       signals: [],
       followUps: [],
       openQuestions: [],
       customItems: [
-        {
-          text: "The current alternative is manual reporting.",
-          sourceIds: ["S1"],
-        },
+        sourceClaim("The current alternative is manual reporting."),
       ],
-    };
+    });
 
     assert.equal(
       validateBrief(customBrief, transcript, [], customSection),
@@ -715,10 +582,7 @@ describe("Transcript and brief evidence", () => {
           {
             ...customBrief,
             customItems: [
-              {
-                text: "Unsupported alternative.",
-                sourceIds: ["S9"],
-              },
+              sourceClaim("Unsupported alternative.", ["S9"]),
             ],
           },
           transcript,
@@ -745,19 +609,18 @@ describe("Transcript and brief evidence", () => {
   });
 
   it("requires unchecked sections to remain empty", () => {
-    const selectedBrief = {
+    const selectedBrief = validBrief({
       summary: null,
       signals: [
         {
           kind: "pain_point",
-          text: "Manual reporting is slow.",
-          sourceIds: ["S1"],
+          ...sourceClaim("Manual reporting is slow."),
         },
       ],
       followUps: [],
       openQuestions: [],
       customItems: [],
-    };
+    });
 
     assert.equal(
       validateBrief(selectedBrief, transcript, ["pain_points"]),
@@ -768,10 +631,7 @@ describe("Transcript and brief evidence", () => {
         validateBrief(
           {
             ...selectedBrief,
-            summary: {
-              text: "An unchecked summary.",
-              sourceIds: ["S1"],
-            },
+            summary: sourceClaim("An unchecked summary."),
           },
           transcript,
           ["pain_points"],
@@ -787,8 +647,7 @@ describe("Transcript and brief evidence", () => {
               ...selectedBrief.signals,
               {
                 kind: "request",
-                text: "Add exports.",
-                sourceIds: ["S1"],
+                ...sourceClaim("Add exports."),
               },
             ],
           },
@@ -840,32 +699,19 @@ describe("Transcript and brief evidence", () => {
         sections: ["pain_points"],
         fetchImpl: async (_url, init) => {
           requestBody = JSON.parse(init.body);
-          return new Response(
-            JSON.stringify({
-              choices: [
+          return openRouterResponse(
+            validBrief({
+              summary: null,
+              signals: [
                 {
-                  message: {
-                    content: JSON.stringify({
-                      summary: null,
-                      signals: [
-                        {
-                          kind: "pain_point",
-                          text: "Reporting is slow.",
-                          sourceIds: ["S1"],
-                        },
-                      ],
-                      followUps: [],
-                      openQuestions: [],
-                      customItems: [],
-                    }),
-                  },
+                  kind: "pain_point",
+                  ...sourceClaim("Reporting is slow."),
                 },
               ],
+              followUps: [],
+              openQuestions: [],
+              customItems: [],
             }),
-            {
-              status: 200,
-              headers: { "content-type": "application/json" },
-            },
           );
         },
       },
@@ -911,31 +757,18 @@ describe("Transcript and brief evidence", () => {
         customSection,
         fetchImpl: async (_url, init) => {
           requestBody = JSON.parse(init.body);
-          return new Response(
-            JSON.stringify({
-              choices: [
-                {
-                  message: {
-                    content: JSON.stringify({
-                      summary: null,
-                      signals: [],
-                      followUps: [],
-                      openQuestions: [],
-                      customItems: [
-                        {
-                          text: "Manual reporting is the current alternative.",
-                          sourceIds: ["S1"],
-                        },
-                      ],
-                    }),
-                  },
-                },
+          return openRouterResponse(
+            validBrief({
+              summary: null,
+              signals: [],
+              followUps: [],
+              openQuestions: [],
+              customItems: [
+                sourceClaim(
+                  "Manual reporting is the current alternative.",
+                ),
               ],
             }),
-            {
-              status: 200,
-              headers: { "content-type": "application/json" },
-            },
           );
         },
       },
@@ -999,16 +832,7 @@ describe("Single-session webhook flow", () => {
 
     await processRecallEvent(
       store,
-      {
-        event: "recording.done",
-        data: {
-          bot: {
-            id: "bot-1",
-            metadata: { discovery_session_id: "session-1" },
-          },
-          recording: { id: "recording-1" },
-        },
-      },
+      recordingDoneEvent(store.session),
       {},
       {
         createTranscript: async () => ({ id: "transcript-1" }),
@@ -1038,16 +862,7 @@ describe("Single-session webhook flow", () => {
 
     await processRecallEvent(
       store,
-      {
-        event: "recording.done",
-        data: {
-          bot: {
-            id: "bot-1",
-            metadata: { discovery_session_id: "session-1" },
-          },
-          recording: { id: "recording-1" },
-        },
-      },
+      recordingDoneEvent(store.session),
       {},
       {
         createTranscript: async () => ({ id: "transcript-1" }),
@@ -1093,16 +908,9 @@ describe("Single-session webhook flow", () => {
       {},
       {
         downloadTranscript: async () => [
-          {
-            participant: { name: "Customer" },
-            words: [
-              {
-                text: "Reporting is slow.",
-                start_timestamp: { relative: 1 },
-                end_timestamp: { relative: 2 },
-              },
-            ],
-          },
+          transcriptParagraph([
+            transcriptWord("Reporting is slow.", 1, 2),
+          ]),
         ],
         generateBrief: async (_config, _transcript, options) => {
           generationOptions = options;
@@ -1111,17 +919,15 @@ describe("Single-session webhook flow", () => {
             signals: [
               {
                 kind: "pain_point",
-                text: "Reporting is slow.",
-                sourceIds: ["S1"],
+                ...sourceClaim("Reporting is slow."),
               },
             ],
             followUps: [],
             openQuestions: [],
             customItems: [
-              {
-                text: "Manual reporting is the current alternative.",
-                sourceIds: ["S1"],
-              },
+              sourceClaim(
+                "Manual reporting is the current alternative.",
+              ),
             ],
           };
         },
@@ -1152,7 +958,7 @@ describe("Single-session webhook flow", () => {
     const config = {
       recallRegion: "us-west-2",
       recallApiKey: "test-key",
-      verificationSecret: secret,
+      verificationSecret: TEST_SECRET,
       publicBaseUrl: "https://example.test",
       openRouterApiKey: "openrouter-test-key",
       openRouterModel: "openai/gpt-5-mini",
@@ -1203,14 +1009,7 @@ describe("Single-session webhook flow", () => {
 
     it("rejects invalid section selections before creating a bot", async () => {
       for (const sections of [[], "summary", ["unknown"]]) {
-        const response = await fetch(`${baseUrl}/api/session`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            meetingUrl: "https://meet.google.com/example",
-            sections,
-          }),
-        });
+        const response = await postSession(baseUrl, { sections });
         assert.equal(response.status, 400);
       }
       assert.equal(createBotCalls, 0);
@@ -1223,14 +1022,7 @@ describe("Single-session webhook flow", () => {
           botImage: Buffer.from("not a jpeg").toString("base64"),
         },
       ]) {
-        const response = await fetch(`${baseUrl}/api/session`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            meetingUrl: "https://meet.google.com/example",
-            ...appearance,
-          }),
-        });
+        const response = await postSession(baseUrl, appearance);
         assert.equal(response.status, 400);
       }
       assert.equal(createBotCalls, 0);
@@ -1248,14 +1040,7 @@ describe("Single-session webhook flow", () => {
           format: "table",
         },
       ]) {
-        const response = await fetch(`${baseUrl}/api/session`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            meetingUrl: "https://meet.google.com/example",
-            customSection,
-          }),
-        });
+        const response = await postSession(baseUrl, { customSection });
         assert.equal(response.status, 400);
       }
       assert.equal(createBotCalls, 0);
@@ -1265,19 +1050,14 @@ describe("Single-session webhook flow", () => {
       const botImage = Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString(
         "base64",
       );
-      const response = await fetch(`${baseUrl}/api/session`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          meetingUrl: "https://meet.google.com/example",
-          botName: "  Research   Companion  ",
-          botImage,
-          sections: [
-            "open_questions",
-            "pain_points",
-            "pain_points",
-          ],
-        }),
+      const response = await postSession(baseUrl, {
+        botName: "  Research   Companion  ",
+        botImage,
+        sections: [
+          "open_questions",
+          "pain_points",
+          "pain_points",
+        ],
       });
       const session = await response.json();
 
@@ -1302,18 +1082,13 @@ describe("Single-session webhook flow", () => {
     });
 
     it("stores and returns a normalized custom-only brief selection", async () => {
-      const response = await fetch(`${baseUrl}/api/session`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          meetingUrl: "https://meet.google.com/example",
-          sections: [],
-          customSection: {
-            name: "  Competitive   signals ",
-            guidance:
-              " Capture mentions of competitors\nand alternatives. ",
-          },
-        }),
+      const response = await postSession(baseUrl, {
+        sections: [],
+        customSection: {
+          name: "  Competitive   signals ",
+          guidance:
+            " Capture mentions of competitors\nand alternatives. ",
+        },
       });
       const session = await response.json();
 
@@ -1330,28 +1105,12 @@ describe("Single-session webhook flow", () => {
     });
 
     it("creates one session and processes a signed recording webhook once", async () => {
-      const created = await fetch(`${baseUrl}/api/session`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          meetingUrl: "https://meet.google.com/example",
-        }),
-      });
+      const created = await postSession(baseUrl);
       assert.equal(created.status, 201);
       assert.deepEqual((await created.clone().json()).sections, BRIEF_SECTIONS);
       assert.equal((await created.clone().json()).customSection, null);
 
-      const sessionId = store.session.id;
-      const body = JSON.stringify({
-        event: "recording.done",
-        data: {
-          bot: {
-            id: store.session.botId,
-            metadata: { discovery_session_id: sessionId },
-          },
-          recording: { id: "recording-1" },
-        },
-      });
+      const body = JSON.stringify(recordingDoneEvent(store.session));
       const headers = Object.fromEntries(signedHeaders(body, "event-1"));
 
       const first = await fetch(

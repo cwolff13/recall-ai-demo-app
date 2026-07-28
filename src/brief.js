@@ -1,43 +1,53 @@
-export const BRIEF_SECTIONS = Object.freeze([
-  "summary",
-  "pain_points",
-  "desired_outcomes",
-  "product_requests",
-  "follow_ups",
-  "open_questions",
-]);
-export const MAX_CUSTOM_SECTION_NAME_LENGTH = 60;
-export const MAX_CUSTOM_SECTION_GUIDANCE_LENGTH = 500;
+import {
+  BRIEF_SECTION_DEFINITIONS,
+  BRIEF_SECTIONS,
+  MAX_CUSTOM_SECTION_GUIDANCE_LENGTH,
+  MAX_CUSTOM_SECTION_NAME_LENGTH,
+  SIGNAL_SECTIONS,
+  briefSectionItems,
+  formatTimestamp,
+  nonNegativeSeconds,
+} from "../shared/domain.js";
 
-const SIGNAL_SECTION = {
-  pain_point: "pain_points",
-  goal: "desired_outcomes",
-  request: "product_requests",
+export {
+  BRIEF_SECTIONS,
+  MAX_CUSTOM_SECTION_GUIDANCE_LENGTH,
+  MAX_CUSTOM_SECTION_NAME_LENGTH,
 };
-const SIGNAL_KINDS = new Set(Object.keys(SIGNAL_SECTION));
+export { formatTimestamp as formatTime } from "../shared/domain.js";
+
+const SIGNAL_KINDS = new Set(Object.keys(SIGNAL_SECTIONS));
 const TRANSCRIPT_PAUSE_SECONDS = 1.5;
 const TRANSCRIPT_MAX_SEGMENT_SECONDS = 30;
 const TRANSCRIPT_MAX_SEGMENT_WORDS = 50;
 const SENTENCE_END = /[.!?](?:["')\]]+)?$/;
 
+function sourceIdsSchema(maxItems) {
+  return {
+    type: "array",
+    minItems: 1,
+    ...(maxItems ? { maxItems } : {}),
+    items: { type: "string" },
+  };
+}
+
+function claimSchema(maxSources) {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      text: { type: "string" },
+      sourceIds: sourceIdsSchema(maxSources),
+    },
+    required: ["text", "sourceIds"],
+  };
+}
+
 export const discoveryBriefSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    summary: {
-      type: ["object", "null"],
-      additionalProperties: false,
-      properties: {
-        text: { type: "string" },
-        sourceIds: {
-          type: "array",
-          minItems: 1,
-          maxItems: 3,
-          items: { type: "string" },
-        },
-      },
-      required: ["text", "sourceIds"],
-    },
+    summary: { ...claimSchema(3), type: ["object", "null"] },
     signals: {
       type: "array",
       items: {
@@ -46,14 +56,10 @@ export const discoveryBriefSchema = {
         properties: {
           kind: {
             type: "string",
-            enum: ["pain_point", "goal", "request"],
+            enum: [...SIGNAL_KINDS],
           },
           text: { type: "string" },
-          sourceIds: {
-            type: "array",
-            minItems: 1,
-            items: { type: "string" },
-          },
+          sourceIds: sourceIdsSchema(),
         },
         required: ["kind", "text", "sourceIds"],
       },
@@ -67,46 +73,18 @@ export const discoveryBriefSchema = {
           owner: { type: ["string", "null"] },
           action: { type: "string" },
           dueDate: { type: ["string", "null"] },
-          sourceIds: {
-            type: "array",
-            minItems: 1,
-            items: { type: "string" },
-          },
+          sourceIds: sourceIdsSchema(),
         },
         required: ["owner", "action", "dueDate", "sourceIds"],
       },
     },
     openQuestions: {
       type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          text: { type: "string" },
-          sourceIds: {
-            type: "array",
-            minItems: 1,
-            items: { type: "string" },
-          },
-        },
-        required: ["text", "sourceIds"],
-      },
+      items: claimSchema(),
     },
     customItems: {
       type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          text: { type: "string" },
-          sourceIds: {
-            type: "array",
-            minItems: 1,
-            items: { type: "string" },
-          },
-        },
-        required: ["text", "sourceIds"],
-      },
+      items: claimSchema(),
     },
   },
   required: [
@@ -117,12 +95,6 @@ export const discoveryBriefSchema = {
     "customItems",
   ],
 };
-
-function finiteSeconds(value, fallback = 0) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : fallback;
-}
 
 function transcriptText(words) {
   return words
@@ -163,12 +135,12 @@ function splitTranscriptParagraph(paragraph) {
     const fallbackStart = previousEndSeconds ?? 0;
     const startSeconds = Math.max(
       fallbackStart,
-      finiteSeconds(word?.start_timestamp?.relative, fallbackStart),
+      nonNegativeSeconds(word?.start_timestamp?.relative, fallbackStart),
       0,
     );
     const endSeconds = Math.max(
       startSeconds,
-      finiteSeconds(word?.end_timestamp?.relative, startSeconds),
+      nonNegativeSeconds(word?.end_timestamp?.relative, startSeconds),
     );
 
     if (
@@ -305,7 +277,13 @@ export function validateBrief(
   const knownSources = new Set(
     transcript.map((segment) => segment.sourceId),
   );
-  const validSummary = selectedSections.has("summary")
+  const selectedField = (field) =>
+    BRIEF_SECTION_DEFINITIONS.some(
+      (definition) =>
+        definition.field === field &&
+        selectedSections.has(definition.key),
+    );
+  const validSummary = selectedField("summary")
     ? validClaim(input?.summary, knownSources, 3)
     : input?.summary === null;
 
@@ -330,7 +308,7 @@ export function validateBrief(
     (signal) =>
       hasOnlyKeys(signal, ["kind", "text", "sourceIds"]) &&
       SIGNAL_KINDS.has(signal.kind) &&
-      selectedSections.has(SIGNAL_SECTION[signal.kind]) &&
+      selectedSections.has(SIGNAL_SECTIONS[signal.kind]) &&
       isNonEmptyString(signal.text) &&
       validSourceIds(signal.sourceIds, knownSources),
   );
@@ -349,14 +327,13 @@ export function validateBrief(
       validSourceIds(item.sourceIds, knownSources),
   );
   const selectedFollowUps =
-    selectedSections.has("follow_ups") || input.followUps.length === 0;
+    selectedField("followUps") || input.followUps.length === 0;
 
   const validQuestions = input.openQuestions.every((question) =>
     validClaim(question, knownSources),
   );
   const selectedQuestions =
-    selectedSections.has("open_questions") ||
-    input.openQuestions.length === 0;
+    selectedField("openQuestions") || input.openQuestions.length === 0;
   const validCustomItems = input.customItems.every((item) =>
     validClaim(item, knownSources),
   );
@@ -505,12 +482,6 @@ export async function generateBrief(
   throw new Error("OpenRouter request exceeded its retry limit");
 }
 
-export function formatTime(seconds) {
-  const wholeSeconds = Math.max(0, Math.floor(seconds));
-  const minutes = Math.floor(wholeSeconds / 60);
-  return `${minutes}:${String(wholeSeconds % 60).padStart(2, "0")}`;
-}
-
 function references(sourceIds) {
   return sourceIds.map((sourceId) => `[${sourceId}]`).join(" ");
 }
@@ -527,16 +498,6 @@ export function briefToMarkdown(
       allowEmpty: Boolean(normalizedCustomSection),
     }),
   );
-  const signals = {
-    pain_point: brief.signals.filter(
-      (signal) => signal.kind === "pain_point",
-    ),
-    goal: brief.signals.filter((signal) => signal.kind === "goal"),
-    request: brief.signals.filter(
-      (signal) => signal.kind === "request",
-    ),
-  };
-
   const bullets = (items) =>
     items.length
       ? items
@@ -547,43 +508,42 @@ export function briefToMarkdown(
           .join("\n")
       : "- None identified";
 
-  const followUps = brief.followUps.length
-    ? brief.followUps
-        .map((item) => {
-          const owner = item.owner ?? "Unassigned";
-          const dueDate = item.dueDate ? ` — due ${item.dueDate}` : "";
-          return `- **${owner}:** ${item.action}${dueDate} ${references(item.sourceIds)}`;
-        })
-        .join("\n")
-    : "- None identified";
+  const sectionContent = (definition) => {
+    const items = briefSectionItems(brief, definition);
+    if (definition.output === "summary") {
+      const [summary] = items;
+      return `${summary.text} ${references(summary.sourceIds)}`;
+    }
+    if (definition.output === "followUps") {
+      return items.length
+        ? items
+            .map((item) => {
+              const owner = item.owner ?? "Unassigned";
+              const dueDate = item.dueDate
+                ? ` — due ${item.dueDate}`
+                : "";
+              return `- **${owner}:** ${item.action}${dueDate} ${references(item.sourceIds)}`;
+            })
+            .join("\n")
+        : "- None identified";
+    }
+    return bullets(items);
+  };
 
   const evidence = transcript
     .map(
       (segment) =>
-        `- **[${segment.sourceId}] ${formatTime(segment.startSeconds)} — ${segment.speaker}:** ${segment.text}`,
+        `- **[${segment.sourceId}] ${formatTimestamp(segment.startSeconds)} — ${segment.speaker}:** ${segment.text}`,
     )
     .join("\n");
 
   const markdown = ["# Customer Discovery Brief"];
-  if (selectedSections.has("summary")) {
-    markdown.push(
-      `## Summary\n\n${brief.summary.text} ${references(brief.summary.sourceIds)}`,
-    );
-  }
-  if (selectedSections.has("pain_points")) {
-    markdown.push(`## Pain points\n\n${bullets(signals.pain_point)}`);
-  }
-  if (selectedSections.has("desired_outcomes")) {
-    markdown.push(`## Desired outcomes\n\n${bullets(signals.goal)}`);
-  }
-  if (selectedSections.has("product_requests")) {
-    markdown.push(`## Product requests\n\n${bullets(signals.request)}`);
-  }
-  if (selectedSections.has("follow_ups")) {
-    markdown.push(`## Follow-ups\n\n${followUps}`);
-  }
-  if (selectedSections.has("open_questions")) {
-    markdown.push(`## Open questions\n\n${bullets(brief.openQuestions)}`);
+  for (const definition of BRIEF_SECTION_DEFINITIONS) {
+    if (selectedSections.has(definition.key)) {
+      markdown.push(
+        `## ${definition.label}\n\n${sectionContent(definition)}`,
+      );
+    }
   }
   if (normalizedCustomSection) {
     markdown.push(

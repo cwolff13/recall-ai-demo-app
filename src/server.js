@@ -4,6 +4,13 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import express from "express";
 import {
+  ACTIVE_STAGES,
+  BRIEF_SECTIONS,
+  DEFAULT_BOT_NAME,
+  MAX_BOT_IMAGE_BYTES,
+  MAX_BOT_NAME_LENGTH,
+} from "../shared/domain.js";
+import {
   createBot,
   createTranscript,
   downloadTranscript,
@@ -13,7 +20,6 @@ import {
   webhookId,
 } from "./recall.js";
 import {
-  BRIEF_SECTIONS,
   briefToMarkdown,
   generateBrief,
   normalizeBriefSections,
@@ -24,29 +30,21 @@ import {
 const currentFile = fileURLToPath(import.meta.url);
 const projectRoot = path.dirname(path.dirname(currentFile));
 
-const ACTIVE_STAGES = new Set([
-  "sending",
-  "joining",
-  "waiting",
-  "recording",
-  "processing",
-  "transcribing",
-  "generating",
+const BOT_STAGES = new Map([
+  ["bot.joining_call", "joining"],
+  ["bot.in_waiting_room", "waiting"],
+  ["bot.in_call_not_recording", "joining"],
+  ["bot.recording_permission_allowed", "joining"],
+  ["bot.in_call_recording", "recording"],
+  ["bot.call_ended", "processing"],
+  ["bot.done", "processing"],
 ]);
-
-const BOT_STAGES = {
-  "bot.joining_call": "joining",
-  "bot.in_waiting_room": "waiting",
-  "bot.in_call_not_recording": "joining",
-  "bot.recording_permission_allowed": "joining",
-  "bot.in_call_recording": "recording",
-  "bot.call_ended": "processing",
-  "bot.done": "processing",
-};
-
-const DEFAULT_BOT_NAME = "Discovery Notes Bot";
-const MAX_BOT_NAME_LENGTH = 100;
-const MAX_BOT_IMAGE_BYTES = 1_300_000;
+const FAILURE_EVENTS = new Set([
+  "bot.fatal",
+  "bot.recording_permission_denied",
+  "recording.failed",
+  "transcript.failed",
+]);
 
 function requiredEnvironment(name, environment) {
   const value = environment[name]?.trim();
@@ -114,36 +112,21 @@ export function acceptWebhook(store, id) {
   return true;
 }
 
-function metadataSessionId(payload) {
-  for (const entity of [
-    payload?.data?.bot,
-    payload?.data?.recording,
-    payload?.data?.transcript,
-  ]) {
-    const id = entity?.metadata?.discovery_session_id;
-    if (typeof id === "string") return id;
-  }
-  return null;
-}
-
 export function eventBelongsToSession(session, payload) {
-  const metadataId = metadataSessionId(payload);
-  if (metadataId) return metadataId === session.id;
-
-  const botId = payload?.data?.bot?.id;
-  if (botId) return botId === session.botId;
-
-  const recordingId = payload?.data?.recording?.id;
-  if (recordingId && session.recordingId) {
-    return recordingId === session.recordingId;
+  let idMatch;
+  for (const resource of ["bot", "recording", "transcript"]) {
+    const entity = payload?.data?.[resource];
+    const metadataId = entity?.metadata?.discovery_session_id;
+    if (typeof metadataId === "string") {
+      return metadataId === session.id;
+    }
+    const eventId = entity?.id;
+    const sessionId = session[`${resource}Id`];
+    if (idMatch === undefined && eventId && sessionId) {
+      idMatch = eventId === sessionId;
+    }
   }
-
-  const transcriptId = payload?.data?.transcript?.id;
-  if (transcriptId && session.transcriptId) {
-    return transcriptId === session.transcriptId;
-  }
-
-  return false;
+  return idMatch ?? false;
 }
 
 function safeFailure(payload) {
@@ -173,18 +156,13 @@ export async function processRecallEvent(
   if (!session.id || !eventBelongsToSession(session, payload)) return;
 
   try {
-    const botStage = BOT_STAGES[payload.event];
+    const botStage = BOT_STAGES.get(payload.event);
     if (botStage) {
       session.stage = botStage;
       return;
     }
 
-    if (
-      payload.event === "bot.fatal" ||
-      payload.event === "bot.recording_permission_denied" ||
-      payload.event === "recording.failed" ||
-      payload.event === "transcript.failed"
-    ) {
+    if (FAILURE_EVENTS.has(payload.event)) {
       session.stage = "failed";
       session.error = safeFailure(payload);
       return;
@@ -330,6 +308,22 @@ function normalizeBotImage(value) {
   return value;
 }
 
+function normalizeSessionRequest(body) {
+  if (!validMeetingUrl(body?.meetingUrl)) {
+    throw new Error("Enter a valid HTTPS meeting URL");
+  }
+  const customSection = normalizeCustomSection(body?.customSection);
+  return {
+    meetingUrl: body.meetingUrl,
+    sections: normalizeBriefSections(body?.sections, {
+      allowEmpty: Boolean(customSection),
+    }),
+    customSection,
+    botName: normalizeBotName(body?.botName),
+    botImage: normalizeBotImage(body?.botImage),
+  };
+}
+
 const defaultServices = {
   createBot,
   createTranscript,
@@ -404,44 +398,15 @@ export function createApp({
       return;
     }
 
-    const meetingUrl = request.body?.meetingUrl;
-    if (!validMeetingUrl(meetingUrl)) {
-      response
-        .status(400)
-        .json({ error: "Enter a valid HTTPS meeting URL" });
-      return;
-    }
-
-    let sections;
-    let customSection;
+    let input;
     try {
-      customSection = normalizeCustomSection(
-        request.body?.customSection,
-      );
-      sections = normalizeBriefSections(request.body?.sections, {
-        allowEmpty: Boolean(customSection),
-      });
+      input = normalizeSessionRequest(request.body);
     } catch (error) {
       response.status(400).json({
         error:
           error instanceof Error
             ? error.message
-            : "Choose at least one valid brief section",
-      });
-      return;
-    }
-
-    let botName;
-    let botImage;
-    try {
-      botName = normalizeBotName(request.body?.botName);
-      botImage = normalizeBotImage(request.body?.botImage);
-    } catch (error) {
-      response.status(400).json({
-        error:
-          error instanceof Error
-            ? error.message
-            : "Enter valid bot appearance settings",
+            : "Enter valid meeting settings",
       });
       return;
     }
@@ -450,9 +415,9 @@ export function createApp({
       id: randomUUID(),
       stage: "sending",
       error: null,
-      sections,
-      customSection,
-      botName,
+      sections: input.sections,
+      customSection: input.customSection,
+      botName: input.botName,
     };
     store.session = session;
     store.webhookIds.clear();
@@ -460,9 +425,9 @@ export function createApp({
     try {
       const bot = await services.createBot(
         config,
-        meetingUrl,
+        input.meetingUrl,
         session.id,
-        { botName, botImage },
+        { botName: input.botName, botImage: input.botImage },
       );
       session.botId = bot.id;
       session.stage = "joining";
@@ -512,6 +477,7 @@ export function createApp({
     }
   });
 
+  app.use("/shared", express.static(path.join(projectRoot, "shared")));
   app.use(express.static(path.join(projectRoot, "public")));
 
   return app;

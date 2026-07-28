@@ -1,4 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import {
+  DEFAULT_BOT_NAME,
+  nonNegativeSeconds,
+} from "../shared/domain.js";
 
 const RETRYABLE_SECONDS = {
   503: 5,
@@ -135,7 +139,7 @@ export async function createBot(
       body: JSON.stringify({
         meeting_url: meetingUrl,
         join_at: new Date().toISOString(),
-        bot_name: customization.botName || "Discovery Notes Bot",
+        bot_name: customization.botName || DEFAULT_BOT_NAME,
         metadata: { discovery_session_id: sessionId },
         recording_config: {
           video_mixed_mp4: {},
@@ -218,19 +222,11 @@ export async function downloadTranscript(
     throw new Error("Recall transcript is not ready for download");
   }
 
-  const download = await (options.fetchImpl ?? fetch)(downloadUrl);
-  if (!download.ok) {
-    throw new Error(
-      `Transcript download failed with status ${download.status}`,
-    );
-  }
-  return download.json();
-}
-
-function finiteSeconds(value) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? value
-    : null;
+  return downloadJson(
+    downloadUrl,
+    options.fetchImpl ?? fetch,
+    "Transcript",
+  );
 }
 
 function participantKey(participant) {
@@ -252,10 +248,12 @@ function recordingDuration(recording, events, speakerTimeline) {
   }
 
   const validSpeakerEnds = speakerTimeline.flatMap((entry) => {
-    const startSeconds = finiteSeconds(
+    const startSeconds = nonNegativeSeconds(
       entry?.start_timestamp?.relative,
     );
-    const endSeconds = finiteSeconds(entry?.end_timestamp?.relative);
+    const endSeconds = nonNegativeSeconds(
+      entry?.end_timestamp?.relative,
+    );
     return startSeconds !== null &&
       endSeconds !== null &&
       endSeconds >= startSeconds
@@ -266,7 +264,8 @@ function recordingDuration(recording, events, speakerTimeline) {
   return Math.max(
     0,
     ...events.map(
-      (event) => finiteSeconds(event?.timestamp?.relative) ?? 0,
+      (event) =>
+        nonNegativeSeconds(event?.timestamp?.relative) ?? 0,
     ),
     ...validSpeakerEnds,
   );
@@ -277,7 +276,7 @@ function attendanceFor(events, durationSeconds) {
     .filter((event) => event?.action === "join" || event?.action === "leave")
     .map((event) => ({
       action: event.action,
-      seconds: finiteSeconds(event?.timestamp?.relative),
+      seconds: nonNegativeSeconds(event?.timestamp?.relative),
     }))
     .filter((event) => event.seconds !== null)
     .sort((left, right) => left.seconds - right.seconds);
@@ -352,10 +351,12 @@ export function summarizeMeetingParticipation({
   const speakingByParticipant = new Map();
   for (const entry of timeline) {
     const key = participantKey(entry?.participant);
-    const startSeconds = finiteSeconds(
+    const startSeconds = nonNegativeSeconds(
       entry?.start_timestamp?.relative,
     );
-    const endSeconds = finiteSeconds(entry?.end_timestamp?.relative);
+    const endSeconds = nonNegativeSeconds(
+      entry?.end_timestamp?.relative,
+    );
     if (
       !key ||
       startSeconds === null ||
@@ -428,11 +429,11 @@ function downloadUrl(value) {
   }
 }
 
-async function downloadJson(url, fetchImpl) {
+async function downloadJson(url, fetchImpl, label) {
   const response = await fetchImpl(url);
   if (!response.ok) {
     throw new Error(
-      `Recall participation download failed with status ${response.status}`,
+      `${label} download failed with status ${response.status}`,
     );
   }
   return response.json();
@@ -483,9 +484,9 @@ export async function getMeetingParticipation(
 
   const fetchImpl = options.fetchImpl ?? fetch;
   const [participants, events, speakerTimeline] = await Promise.all([
-    downloadJson(participantsUrl, fetchImpl),
-    downloadJson(eventsUrl, fetchImpl),
-    downloadJson(speakerTimelineUrl, fetchImpl),
+    downloadJson(participantsUrl, fetchImpl, "Recall participation"),
+    downloadJson(eventsUrl, fetchImpl, "Recall participation"),
+    downloadJson(speakerTimelineUrl, fetchImpl, "Recall participation"),
   ]);
 
   return summarizeMeetingParticipation({

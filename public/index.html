@@ -9,7 +9,7 @@
     />
     <title>Customer Discovery Brief</title>
     <link rel="stylesheet" href="/styles.css" />
-    <script src="/app.js" defer></script>
+    <script src="/app.js" type="module"></script>
   </head>
   <body>
     <main class="shell">
@@ -47,8 +47,6 @@
                   class="text-input"
                   name="botName"
                   type="text"
-                  value="Discovery Notes Bot"
-                  maxlength="100"
                   required
                 />
                 <p class="field-hint">
@@ -109,212 +107,7 @@
               Recall captures the full meeting. These choices control what the
               brief extracts and presents.
             </p>
-            <div class="section-options">
-              <div class="section-option">
-                <label class="section-option-toggle">
-                  <input
-                    type="checkbox"
-                    name="sections"
-                    value="summary"
-                    checked
-                    aria-describedby="summary-description"
-                  />
-                  <span>Summary</span>
-                </label>
-                <button
-                  class="section-info"
-                  type="button"
-                  aria-label="About Summary"
-                  aria-describedby="summary-tooltip"
-                >
-                  i
-                </button>
-                <span
-                  id="summary-tooltip"
-                  class="section-tooltip"
-                  role="tooltip"
-                  aria-hidden="true"
-                >
-                  A concise overview of the meeting’s key context and
-                  takeaways.
-                </span>
-                <span id="summary-description" class="visually-hidden">
-                  A concise overview of the meeting’s key context and
-                  takeaways.
-                </span>
-              </div>
-
-              <div class="section-option">
-                <label class="section-option-toggle">
-                  <input
-                    type="checkbox"
-                    name="sections"
-                    value="pain_points"
-                    checked
-                    aria-describedby="pain-points-description"
-                  />
-                  <span>Pain points</span>
-                </label>
-                <button
-                  class="section-info"
-                  type="button"
-                  aria-label="About Pain points"
-                  aria-describedby="pain-points-tooltip"
-                >
-                  i
-                </button>
-                <span
-                  id="pain-points-tooltip"
-                  class="section-tooltip"
-                  role="tooltip"
-                  aria-hidden="true"
-                >
-                  Problems, frustrations, or blockers explicitly described.
-                </span>
-                <span id="pain-points-description" class="visually-hidden">
-                  Problems, frustrations, or blockers explicitly described.
-                </span>
-              </div>
-
-              <div class="section-option">
-                <label class="section-option-toggle">
-                  <input
-                    type="checkbox"
-                    name="sections"
-                    value="desired_outcomes"
-                    checked
-                    aria-describedby="desired-outcomes-description"
-                  />
-                  <span>Desired outcomes</span>
-                </label>
-                <button
-                  class="section-info"
-                  type="button"
-                  aria-label="About Desired outcomes"
-                  aria-describedby="desired-outcomes-tooltip"
-                >
-                  i
-                </button>
-                <span
-                  id="desired-outcomes-tooltip"
-                  class="section-tooltip"
-                  role="tooltip"
-                  aria-hidden="true"
-                >
-                  Results participants want to achieve or improve.
-                </span>
-                <span
-                  id="desired-outcomes-description"
-                  class="visually-hidden"
-                >
-                  Results participants want to achieve or improve.
-                </span>
-              </div>
-
-              <div class="section-option">
-                <label class="section-option-toggle">
-                  <input
-                    type="checkbox"
-                    name="sections"
-                    value="product_requests"
-                    checked
-                    aria-describedby="product-requests-description"
-                  />
-                  <span>Product requests</span>
-                </label>
-                <button
-                  class="section-info"
-                  type="button"
-                  aria-label="About Product requests"
-                  aria-describedby="product-requests-tooltip"
-                >
-                  i
-                </button>
-                <span
-                  id="product-requests-tooltip"
-                  class="section-tooltip"
-                  role="tooltip"
-                  aria-hidden="true"
-                >
-                  Explicit requests for features, capabilities, or changes.
-                </span>
-                <span
-                  id="product-requests-description"
-                  class="visually-hidden"
-                >
-                  Explicit requests for features, capabilities, or changes.
-                </span>
-              </div>
-
-              <div class="section-option">
-                <label class="section-option-toggle">
-                  <input
-                    type="checkbox"
-                    name="sections"
-                    value="follow_ups"
-                    checked
-                    aria-describedby="follow-ups-description"
-                  />
-                  <span>Follow-ups</span>
-                </label>
-                <button
-                  class="section-info"
-                  type="button"
-                  aria-label="About Follow-ups"
-                  aria-describedby="follow-ups-tooltip"
-                >
-                  i
-                </button>
-                <span
-                  id="follow-ups-tooltip"
-                  class="section-tooltip"
-                  role="tooltip"
-                  aria-hidden="true"
-                >
-                  Stated next steps, including owners and dates only when given.
-                </span>
-                <span id="follow-ups-description" class="visually-hidden">
-                  Stated next steps, including owners and dates only when given.
-                </span>
-              </div>
-
-              <div class="section-option">
-                <label class="section-option-toggle">
-                  <input
-                    type="checkbox"
-                    name="sections"
-                    value="open_questions"
-                    checked
-                    aria-describedby="open-questions-description"
-                  />
-                  <span>Open questions</span>
-                </label>
-                <button
-                  class="section-info"
-                  type="button"
-                  aria-label="About Open questions"
-                  aria-describedby="open-questions-tooltip"
-                >
-                  i
-                </button>
-                <span
-                  id="open-questions-tooltip"
-                  class="section-tooltip"
-                  role="tooltip"
-                  aria-hidden="true"
-                >
-                  Important unknowns or missing information revealed by the
-                  discussion.
-                </span>
-                <span
-                  id="open-questions-description"
-                  class="visually-hidden"
-                >
-                  Important unknowns or missing information revealed by the
-                  discussion.
-                </span>
-              </div>
-            </div>
+            <div id="section-options" class="section-options"></div>
             <p
               id="section-error"
               class="selection-error"
@@ -358,7 +151,6 @@
                     id="custom-section-name"
                     class="text-input"
                     type="text"
-                    maxlength="60"
                     placeholder="Competitive signals"
                     required
                     disabled
@@ -374,7 +166,6 @@
                   <textarea
                     id="custom-section-guidance"
                     class="text-input"
-                    maxlength="500"
                     rows="3"
                     placeholder="Capture mentions of competitors, alternatives, and reasons for preferring them."
                     required
@@ -464,46 +255,7 @@
             </div>
           </aside>
 
-          <article class="brief-column">
-            <section class="brief-section" data-brief-section="summary">
-              <h3>Summary</h3>
-              <div id="summary"></div>
-            </section>
-
-            <section class="brief-section" data-brief-section="pain_points">
-              <h3>Pain points</h3>
-              <div id="pain-points"></div>
-            </section>
-
-            <section
-              class="brief-section"
-              data-brief-section="desired_outcomes"
-            >
-              <h3>Desired outcomes</h3>
-              <div id="goals"></div>
-            </section>
-
-            <section
-              class="brief-section"
-              data-brief-section="product_requests"
-            >
-              <h3>Product requests</h3>
-              <div id="requests"></div>
-            </section>
-
-            <section class="brief-section" data-brief-section="follow_ups">
-              <h3>Follow-ups</h3>
-              <div id="follow-ups"></div>
-            </section>
-
-            <section
-              class="brief-section"
-              data-brief-section="open_questions"
-            >
-              <h3>Open questions</h3>
-              <div id="open-questions"></div>
-            </section>
-
+          <article id="brief-column" class="brief-column">
             <section id="custom-brief-section" class="brief-section" hidden>
               <h3 id="custom-brief-heading"></h3>
               <div id="custom-brief-items"></div>

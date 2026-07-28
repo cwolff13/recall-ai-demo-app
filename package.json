@@ -9,8 +9,8 @@
   "scripts": {
     "dev": "node --env-file-if-exists=.env --watch src/server.js",
     "start": "node --env-file-if-exists=.env src/server.js",
-    "check": "node --check src/server.js && node --check src/recall.js && node --check src/brief.js && node --check public/app.js",
-    "test": "node --test"
+    "check": "for file in shared/*.js src/*.js public/*.js; do node --check \"$file\" || exit; done",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "express": "^5.1.0"

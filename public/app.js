@@ -1,3 +1,26 @@
+import {
+  ACTIVE_STAGES,
+  BRIEF_SECTION_DEFINITIONS,
+  BRIEF_SECTIONS,
+  DEFAULT_BOT_NAME,
+  MAX_BOT_IMAGE_BYTES,
+  MAX_BOT_NAME_LENGTH,
+  MAX_CUSTOM_SECTION_GUIDANCE_LENGTH,
+  MAX_CUSTOM_SECTION_NAME_LENGTH,
+  formatTimestamp,
+} from "/shared/domain.js";
+import {
+  briefSection,
+  citation,
+  claim,
+  emptyState,
+  evidenceItem,
+  metric,
+  participantCard,
+  renderBriefSections,
+  sectionOption,
+} from "./components.js";
+
 const form = document.querySelector("#meeting-form");
 const meetingUrl = document.querySelector("#meeting-url");
 const submitButton = document.querySelector("#submit-button");
@@ -12,6 +35,10 @@ const botImagePreviewImage = document.querySelector(
 const botImageError = document.querySelector("#bot-image-error");
 const removeBotImage = document.querySelector("#remove-bot-image");
 const sectionSelector = document.querySelector("#section-selector");
+const sectionOptions = document.querySelector("#section-options");
+const briefColumn = document.querySelector("#brief-column");
+sectionOptions.append(...BRIEF_SECTION_DEFINITIONS.map(sectionOption));
+briefColumn.prepend(...BRIEF_SECTION_DEFINITIONS.map(briefSection));
 const sectionInputs = [
   ...document.querySelectorAll('input[name="sections"]'),
 ];
@@ -29,6 +56,10 @@ const customSectionName = document.querySelector("#custom-section-name");
 const customSectionGuidance = document.querySelector(
   "#custom-section-guidance",
 );
+botNameInput.value = DEFAULT_BOT_NAME;
+botNameInput.maxLength = MAX_BOT_NAME_LENGTH;
+customSectionName.maxLength = MAX_CUSTOM_SECTION_NAME_LENGTH;
+customSectionGuidance.maxLength = MAX_CUSTOM_SECTION_GUIDANCE_LENGTH;
 const statusCard = document.querySelector("#status-card");
 const statusDot = document.querySelector("#status-dot");
 const statusTitle = document.querySelector("#status-title");
@@ -52,16 +83,22 @@ const customBriefSection = document.querySelector(
 const customBriefHeading = document.querySelector(
   "#custom-brief-heading",
 );
-const defaultSections = sectionInputs.map((input) => input.value);
-const defaultBotName = "Discovery Notes Bot";
-const maxBotImageBytes = 1_300_000;
+const lockableControls = [
+  meetingUrl,
+  submitButton,
+  botNameInput,
+  botImageInput,
+  removeBotImage,
+  sectionSelector,
+  customSectionSelector,
+];
 
 const stageCopy = {
   idle: ["Ready for a meeting", "Paste a supported meeting URL to begin."],
   sending: ["Sending the bot", "Recall is scheduling the meeting bot."],
   joining: [
     "Bot is joining",
-    "Admit Discovery Notes Bot if the meeting uses a waiting room.",
+    "Admit the bot if the meeting uses a waiting room.",
   ],
   waiting: [
     "Waiting for admission",
@@ -92,16 +129,6 @@ const stageCopy = {
     "Review the error below, then try a new meeting.",
   ],
 };
-
-const activeStages = new Set([
-  "sending",
-  "joining",
-  "waiting",
-  "recording",
-  "processing",
-  "transcribing",
-  "generating",
-]);
 
 let currentTranscript = [];
 let currentMarkdown = "";
@@ -150,7 +177,7 @@ async function loadBotImage(file) {
     return;
   }
 
-  if (file.size > maxBotImageBytes) {
+  if (file.size > MAX_BOT_IMAGE_BYTES) {
     clearBotImage();
     showBotImageError("Choose a JPEG no larger than 1.3 MB.");
     return;
@@ -212,7 +239,7 @@ function synchronizeCustomSection(customSection) {
 
 function synchronizeSections(sections) {
   const selected = new Set(
-    Array.isArray(sections) ? sections : defaultSections,
+    Array.isArray(sections) ? sections : BRIEF_SECTIONS,
   );
   sectionInputs.forEach((input) => {
     input.checked = selected.has(input.value);
@@ -225,12 +252,6 @@ function validateSectionSelection() {
   sectionError.hidden = valid;
   sectionSelector.setAttribute("aria-invalid", String(!valid));
   return valid;
-}
-
-function formatTime(seconds) {
-  const wholeSeconds = Math.max(0, Math.floor(seconds));
-  const minutes = Math.floor(wholeSeconds / 60);
-  return `${minutes}:${String(wholeSeconds % 60).padStart(2, "0")}`;
 }
 
 function formatDuration(seconds) {
@@ -249,19 +270,6 @@ function formatDuration(seconds) {
     ).padStart(2, "0")}`;
   }
   return `${minutes}:${String(remainder).padStart(2, "0")}`;
-}
-
-function participationMetric(label, value) {
-  const metric = document.createElement("div");
-  metric.className = "participation-metric";
-
-  const metricLabel = document.createElement("span");
-  metricLabel.textContent = label;
-  const metricValue = document.createElement("strong");
-  metricValue.textContent = value;
-
-  metric.append(metricLabel, metricValue);
-  return metric;
 }
 
 function attendanceDescription(participant) {
@@ -285,68 +293,6 @@ function attendanceDescription(participant) {
   return `Present: ${windows}`;
 }
 
-function participantNode(participant) {
-  const item = document.createElement("article");
-  item.className = "participant";
-
-  const heading = document.createElement("div");
-  heading.className = "participant-heading";
-  const name = document.createElement("h3");
-  name.textContent = participant.name;
-  heading.append(name);
-
-  if (participant.isHost) {
-    const host = document.createElement("span");
-    host.className = "host-badge";
-    host.textContent = "Host";
-    heading.append(host);
-  }
-
-  const metrics = document.createElement("div");
-  metrics.className = "participant-metrics";
-  metrics.append(
-    participationMetric(
-      "Attendance",
-      participant.attendanceSeconds === null
-        ? "Unavailable"
-        : formatDuration(participant.attendanceSeconds),
-    ),
-    participationMetric(
-      "Speaking",
-      formatDuration(participant.speakingSeconds),
-    ),
-    participationMetric(
-      "Speaking share",
-      `${participant.speakingShare}%`,
-    ),
-  );
-
-  const attendance = document.createElement("p");
-  attendance.className = "attendance-timeline";
-  attendance.textContent = attendanceDescription(participant);
-
-  const share = Math.min(
-    100,
-    Math.max(0, Number(participant.speakingShare) || 0),
-  );
-  const track = document.createElement("div");
-  track.className = "speaking-track";
-  track.setAttribute("role", "progressbar");
-  track.setAttribute(
-    "aria-label",
-    `${participant.name} speaking share`,
-  );
-  track.setAttribute("aria-valuemin", "0");
-  track.setAttribute("aria-valuemax", "100");
-  track.setAttribute("aria-valuenow", String(share));
-  const fill = document.createElement("span");
-  fill.style.width = `${share}%`;
-  track.append(fill);
-
-  item.append(heading, metrics, attendance, track);
-  return item;
-}
-
 function renderMeetingParticipation(session) {
   participationSummary.replaceChildren();
   participantList.replaceChildren();
@@ -366,124 +312,77 @@ function renderMeetingParticipation(session) {
     ? participation.participants
     : [];
   participationSummary.append(
-    participationMetric(
+    metric(
       "Recorded duration",
       formatDuration(participation.durationSeconds),
     ),
-    participationMetric(
+    metric(
       "Attendees",
       String(participation.participantCount ?? participants.length),
     ),
-    participationMetric(
+    metric(
       "Captured speaking",
       formatDuration(participation.totalSpeakingSeconds),
     ),
   );
   participants.forEach((participant) =>
-    participantList.append(participantNode(participant)),
+    participantList.append(
+      participantCard(participant, {
+        attendanceDescription,
+        formatDuration,
+      }),
+    ),
   );
 
   participationNote.hidden = false;
   participationPanel.hidden = false;
 }
 
-function emptyMessage() {
-  const message = document.createElement("p");
-  message.className = "empty-message";
-  message.textContent = "None identified.";
-  return message;
-}
-
-function citationButton(sourceId) {
+function citationFor(sourceId) {
   const segment = currentTranscript.find(
     (candidate) => candidate.sourceId === sourceId,
   );
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "citation";
-  button.textContent = segment
-    ? `${sourceId} · ${formatTime(segment.startSeconds)}`
-    : sourceId;
-  button.addEventListener("click", () => {
-    if (!segment) return;
-    recording.currentTime = segment.startSeconds;
-    recording.play().catch(() => {});
+  return citation(segment, sourceId, formatTimestamp, seekRecording);
+}
+
+function seekRecording(segment, revealEvidence = false) {
+  recording.currentTime = segment.startSeconds;
+  recording.play().catch(() => {});
+  if (revealEvidence) {
     document
-      .querySelector(`[data-evidence="${sourceId}"]`)
+      .querySelector(`[data-evidence="${segment.sourceId}"]`)
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
-  });
-  return button;
-}
-
-function claimNode(text, sourceIds) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "claim";
-  const copy = document.createElement("p");
-  copy.textContent = text;
-  wrapper.append(copy);
-
-  const citations = document.createElement("div");
-  citations.className = "citations";
-  sourceIds.forEach((sourceId) =>
-    citations.append(citationButton(sourceId)),
-  );
-  wrapper.append(citations);
-  return wrapper;
-}
-
-function renderClaims(targetId, claims) {
-  const target = document.querySelector(targetId);
-  target.replaceChildren();
-  if (claims.length === 0) {
-    target.append(emptyMessage());
-    return;
   }
-  claims.forEach((claim) =>
-    target.append(claimNode(claim.text, claim.sourceIds)),
+}
+
+function renderCollection(target, items, nodeForItem) {
+  target.replaceChildren(
+    ...(items.length ? items.map(nodeForItem) : [emptyState()]),
   );
 }
 
-function renderFollowUps(items) {
-  const target = document.querySelector("#follow-ups");
-  target.replaceChildren();
-  if (items.length === 0) {
-    target.append(emptyMessage());
-    return;
-  }
-
-  items.forEach((item) => {
-    const owner = item.owner ?? "Unassigned";
-    const dueDate = item.dueDate ? ` · Due ${item.dueDate}` : "";
-    target.append(
-      claimNode(`${owner}: ${item.action}${dueDate}`, item.sourceIds),
-    );
-  });
+function renderItems(target, items, followUps = false) {
+  renderCollection(target, items, (item) =>
+    claim(
+      followUps
+        ? {
+            ...item,
+            text: `${item.owner ?? "Unassigned"}: ${item.action}${
+              item.dueDate ? ` · Due ${item.dueDate}` : ""
+            }`,
+          }
+        : item,
+      citationFor,
+    ),
+  );
 }
 
 function renderEvidence(transcript) {
-  evidenceList.replaceChildren();
-  transcript.forEach((segment) => {
-    const item = document.createElement("li");
-    item.className = "evidence-item";
-    item.dataset.evidence = segment.sourceId;
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "evidence-time";
-    button.textContent = `${segment.sourceId} · ${formatTime(segment.startSeconds)}`;
-    button.addEventListener("click", () => {
-      recording.currentTime = segment.startSeconds;
-      recording.play().catch(() => {});
-    });
-
-    const speaker = document.createElement("strong");
-    speaker.textContent = segment.speaker;
-    const text = document.createElement("p");
-    text.textContent = segment.text;
-
-    item.append(button, speaker, text);
-    evidenceList.append(item);
-  });
+  evidenceList.replaceChildren(
+    ...transcript.map((segment) =>
+      evidenceItem(segment, formatTimestamp, seekRecording),
+    ),
+  );
 }
 
 function renderBrief(session) {
@@ -492,39 +391,20 @@ function renderBrief(session) {
   renderMeetingParticipation(session);
   const brief = session.brief;
   if (!brief) return;
-  const selected = new Set(session.sections ?? defaultSections);
-
-  document
-    .querySelectorAll("[data-brief-section]")
-    .forEach((section) => {
-      section.hidden = !selected.has(section.dataset.briefSection);
-    });
-
-  if (selected.has("summary") && brief.summary) {
-    document
-      .querySelector("#summary")
-      .replaceChildren(
-        claimNode(brief.summary.text, brief.summary.sourceIds),
-      );
-  }
-  renderClaims(
-    "#pain-points",
-    brief.signals.filter((signal) => signal.kind === "pain_point"),
+  renderBriefSections(
+    briefColumn,
+    brief,
+    BRIEF_SECTION_DEFINITIONS,
+    new Set(session.sections ?? BRIEF_SECTIONS),
+    renderItems,
   );
-  renderClaims(
-    "#goals",
-    brief.signals.filter((signal) => signal.kind === "goal"),
-  );
-  renderClaims(
-    "#requests",
-    brief.signals.filter((signal) => signal.kind === "request"),
-  );
-  renderFollowUps(brief.followUps);
-  renderClaims("#open-questions", brief.openQuestions);
   customBriefSection.hidden = !session.customSection;
   if (session.customSection) {
     customBriefHeading.textContent = session.customSection.name;
-    renderClaims("#custom-brief-items", brief.customItems ?? []);
+    renderItems(
+      document.querySelector("#custom-brief-items"),
+      brief.customItems ?? [],
+    );
   }
   renderEvidence(currentTranscript);
 
@@ -539,7 +419,7 @@ function renderSession(session) {
   const [title, detail] = stageCopy[session.stage] ?? stageCopy.idle;
   statusTitle.textContent = title;
   const activeBotName =
-    session.botName || botNameInput.value.trim() || defaultBotName;
+    session.botName || botNameInput.value.trim() || DEFAULT_BOT_NAME;
   statusDetail.textContent =
     session.stage === "failed" && session.error
       ? session.error
@@ -549,15 +429,11 @@ function renderSession(session) {
 
   statusCard.dataset.stage = session.stage;
   statusDot.dataset.stage = session.stage;
-  const isActive = activeStages.has(session.stage);
-  meetingUrl.disabled = isActive;
-  submitButton.disabled = isActive;
-  botNameInput.disabled = isActive;
-  botImageInput.disabled = isActive;
-  removeBotImage.disabled = isActive;
+  const isActive = ACTIVE_STAGES.has(session.stage);
+  lockableControls.forEach((control) => {
+    control.disabled = isActive;
+  });
   botCustomization.classList.toggle("is-disabled", isActive);
-  sectionSelector.disabled = isActive;
-  customSectionSelector.disabled = isActive;
   updateCustomSectionControls();
   submitButton.textContent = isActive ? "Bot active" : "Send bot";
 
@@ -609,7 +485,7 @@ form.addEventListener("submit", async (event) => {
 
   const sections = selectedSections();
   const customSection = customSectionValue();
-  const botName = botNameInput.value.trim() || defaultBotName;
+  const botName = botNameInput.value.trim() || DEFAULT_BOT_NAME;
   botNameInput.value = botName;
   selectionSynchronized = true;
   identitySynchronized = true;
