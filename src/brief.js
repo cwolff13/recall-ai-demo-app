@@ -1,4 +1,18 @@
-const SIGNAL_KINDS = new Set(["pain_point", "goal", "request"]);
+export const BRIEF_SECTIONS = Object.freeze([
+  "summary",
+  "pain_points",
+  "desired_outcomes",
+  "product_requests",
+  "follow_ups",
+  "open_questions",
+]);
+
+const SIGNAL_SECTION = {
+  pain_point: "pain_points",
+  goal: "desired_outcomes",
+  request: "product_requests",
+};
+const SIGNAL_KINDS = new Set(Object.keys(SIGNAL_SECTION));
 const TRANSCRIPT_PAUSE_SECONDS = 1.5;
 const TRANSCRIPT_MAX_SEGMENT_SECONDS = 30;
 const TRANSCRIPT_MAX_SEGMENT_WORDS = 50;
@@ -9,7 +23,7 @@ export const discoveryBriefSchema = {
   additionalProperties: false,
   properties: {
     summary: {
-      type: "object",
+      type: ["object", "null"],
       additionalProperties: false,
       properties: {
         text: { type: "string" },
@@ -186,6 +200,25 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+export function normalizeBriefSections(input) {
+  if (input === undefined) return [...BRIEF_SECTIONS];
+  if (!Array.isArray(input) || input.length === 0) {
+    throw new Error("Choose at least one valid brief section");
+  }
+
+  const requested = new Set(input);
+  if (
+    [...requested].some(
+      (section) =>
+        typeof section !== "string" || !BRIEF_SECTIONS.includes(section),
+    )
+  ) {
+    throw new Error("Choose at least one valid brief section");
+  }
+
+  return BRIEF_SECTIONS.filter((section) => requested.has(section));
+}
+
 function validSourceIds(value, knownSources, maxItems = Infinity) {
   return (
     Array.isArray(value) &&
@@ -206,10 +239,18 @@ function validClaim(value, knownSources, maxSources = Infinity) {
   );
 }
 
-export function validateBrief(input, transcript) {
+export function validateBrief(
+  input,
+  transcript,
+  sections = BRIEF_SECTIONS,
+) {
+  const selectedSections = new Set(normalizeBriefSections(sections));
   const knownSources = new Set(
     transcript.map((segment) => segment.sourceId),
   );
+  const validSummary = selectedSections.has("summary")
+    ? validClaim(input?.summary, knownSources, 3)
+    : input?.summary === null;
 
   if (
     !hasOnlyKeys(input, [
@@ -218,7 +259,7 @@ export function validateBrief(input, transcript) {
       "followUps",
       "openQuestions",
     ]) ||
-    !validClaim(input.summary, knownSources, 3) ||
+    !validSummary ||
     !Array.isArray(input.signals) ||
     !Array.isArray(input.followUps) ||
     !Array.isArray(input.openQuestions)
@@ -230,6 +271,7 @@ export function validateBrief(input, transcript) {
     (signal) =>
       hasOnlyKeys(signal, ["kind", "text", "sourceIds"]) &&
       SIGNAL_KINDS.has(signal.kind) &&
+      selectedSections.has(SIGNAL_SECTION[signal.kind]) &&
       isNonEmptyString(signal.text) &&
       validSourceIds(signal.sourceIds, knownSources),
   );
@@ -247,12 +289,23 @@ export function validateBrief(input, transcript) {
       (item.dueDate === null || isNonEmptyString(item.dueDate)) &&
       validSourceIds(item.sourceIds, knownSources),
   );
+  const selectedFollowUps =
+    selectedSections.has("follow_ups") || input.followUps.length === 0;
 
   const validQuestions = input.openQuestions.every((question) =>
     validClaim(question, knownSources),
   );
+  const selectedQuestions =
+    selectedSections.has("open_questions") ||
+    input.openQuestions.length === 0;
 
-  if (!validSignals || !validFollowUps || !validQuestions) {
+  if (
+    !validSignals ||
+    !validFollowUps ||
+    !selectedFollowUps ||
+    !validQuestions ||
+    !selectedQuestions
+  ) {
     throw new Error("OpenRouter returned an invalid discovery brief");
   }
 
@@ -265,11 +318,21 @@ const wait = (milliseconds) =>
 export async function generateBrief(
   config,
   transcript,
-  { fetchImpl = fetch, sleep = wait } = {},
+  {
+    sections = BRIEF_SECTIONS,
+    fetchImpl = fetch,
+    sleep = wait,
+  } = {},
 ) {
   if (transcript.length === 0) {
     throw new Error("The transcript did not contain any speech");
   }
+
+  const normalizedSections = normalizeBriefSections(sections);
+  const selectedSections = normalizedSections.join(", ");
+  const unselectedSections = BRIEF_SECTIONS.filter(
+    (section) => !normalizedSections.includes(section),
+  ).join(", ");
 
   const body = {
     model: config.openRouterModel,
@@ -282,10 +345,14 @@ export async function generateBrief(
         role: "system",
         content: [
           "Create a concise customer discovery brief using only the supplied transcript.",
-          "Capture explicit pain points, desired outcomes, product requests, and follow-up commitments.",
+          "Within the selected sections, capture explicit pain points, desired outcomes, product requests, and follow-up commitments.",
           "Never invent facts, owners, dates, needs, or requests.",
           "If an owner or due date was not stated, return null.",
-          "Put important missing information in openQuestions.",
+          `Populate only these selected brief sections: ${selectedSections}.`,
+          unselectedSections
+            ? `These sections were not selected and must remain empty: ${unselectedSections}. Return null for an unselected summary, omit unselected signal kinds, and return empty arrays for unselected follow-ups or open questions.`
+            : "All brief sections were selected.",
+          "Put important missing information in openQuestions only when open_questions is selected.",
           "Every summary, signal, follow-up, and open question must cite one or more supplied sourceIds.",
           "For the summary, cite only the one to three most representative sourceIds instead of every supporting segment.",
           "Keep open-question context in sourceIds; do not add parenthetical context labels to the question text.",
@@ -349,7 +416,7 @@ export async function generateBrief(
     } catch {
       throw new Error("OpenRouter returned invalid JSON");
     }
-    return validateBrief(parsed, transcript);
+    return validateBrief(parsed, transcript, normalizedSections);
   }
 
   throw new Error("OpenRouter request exceeded its retry limit");
@@ -365,7 +432,12 @@ function references(sourceIds) {
   return sourceIds.map((sourceId) => `[${sourceId}]`).join(" ");
 }
 
-export function briefToMarkdown(brief, transcript) {
+export function briefToMarkdown(
+  brief,
+  transcript,
+  sections = BRIEF_SECTIONS,
+) {
+  const selectedSections = new Set(normalizeBriefSections(sections));
   const signals = {
     pain_point: brief.signals.filter(
       (signal) => signal.kind === "pain_point",
@@ -403,14 +475,27 @@ export function briefToMarkdown(brief, transcript) {
     )
     .join("\n");
 
-  return [
-    "# Customer Discovery Brief",
-    `## Summary\n\n${brief.summary.text} ${references(brief.summary.sourceIds)}`,
-    `## Pain points\n\n${bullets(signals.pain_point)}`,
-    `## Desired outcomes\n\n${bullets(signals.goal)}`,
-    `## Product requests\n\n${bullets(signals.request)}`,
-    `## Follow-ups\n\n${followUps}`,
-    `## Open questions\n\n${bullets(brief.openQuestions)}`,
-    `## Source evidence\n\n${evidence}`,
-  ].join("\n\n");
+  const markdown = ["# Customer Discovery Brief"];
+  if (selectedSections.has("summary")) {
+    markdown.push(
+      `## Summary\n\n${brief.summary.text} ${references(brief.summary.sourceIds)}`,
+    );
+  }
+  if (selectedSections.has("pain_points")) {
+    markdown.push(`## Pain points\n\n${bullets(signals.pain_point)}`);
+  }
+  if (selectedSections.has("desired_outcomes")) {
+    markdown.push(`## Desired outcomes\n\n${bullets(signals.goal)}`);
+  }
+  if (selectedSections.has("product_requests")) {
+    markdown.push(`## Product requests\n\n${bullets(signals.request)}`);
+  }
+  if (selectedSections.has("follow_ups")) {
+    markdown.push(`## Follow-ups\n\n${followUps}`);
+  }
+  if (selectedSections.has("open_questions")) {
+    markdown.push(`## Open questions\n\n${bullets(brief.openQuestions)}`);
+  }
+  markdown.push(`## Source evidence\n\n${evidence}`);
+  return markdown.join("\n\n");
 }

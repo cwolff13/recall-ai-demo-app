@@ -12,8 +12,10 @@ import {
   webhookId,
 } from "./recall.js";
 import {
+  BRIEF_SECTIONS,
   briefToMarkdown,
   generateBrief,
+  normalizeBriefSections,
   normalizeTranscript,
 } from "./brief.js";
 
@@ -92,6 +94,7 @@ export function createSessionStore() {
       id: null,
       stage: "idle",
       error: null,
+      sections: [...BRIEF_SECTIONS],
     },
     webhookIds: new Set(),
   };
@@ -218,11 +221,17 @@ export async function processRecallEvent(
         transcriptId,
       );
       const transcript = normalizeTranscript(rawTranscript);
-      const brief = await services.generateBrief(config, transcript);
+      const brief = await services.generateBrief(config, transcript, {
+        sections: session.sections,
+      });
 
       session.transcript = transcript;
       session.brief = brief;
-      session.markdown = briefToMarkdown(brief, transcript);
+      session.markdown = briefToMarkdown(
+        brief,
+        transcript,
+        session.sections,
+      );
       session.stage = "complete";
     }
   } catch (error) {
@@ -238,6 +247,7 @@ function publicSession(session) {
     transcript: session.transcript,
     brief: session.brief,
     markdown: session.markdown,
+    sections: session.sections ?? [...BRIEF_SECTIONS],
     hasRecording: Boolean(session.recordingId),
   };
 }
@@ -332,10 +342,24 @@ export function createApp({
       return;
     }
 
+    let sections;
+    try {
+      sections = normalizeBriefSections(request.body?.sections);
+    } catch (error) {
+      response.status(400).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Choose at least one valid brief section",
+      });
+      return;
+    }
+
     const session = {
       id: randomUUID(),
       stage: "sending",
       error: null,
+      sections,
     };
     store.session = session;
     store.webhookIds.clear();

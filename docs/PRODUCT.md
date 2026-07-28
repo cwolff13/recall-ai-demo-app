@@ -22,22 +22,23 @@ authoritative research.
 
 ## Workflow
 
-1. The user provides a supported meeting URL.
+1. The user provides a supported meeting URL and chooses which discovery-brief
+   sections to include.
 2. A Recall Meeting Bot joins, notifies participants in chat, and records the
    interview.
 3. Verified Recall webhooks communicate capture and processing state.
 4. After the recording is ready, the application requests a Recall
    post-meeting transcript.
 5. The transcript's word-level timestamps are deterministically grouped into
-   short evidence excerpts and converted into a structured customer-discovery
-   brief.
+   short evidence excerpts and converted into the selected sections of a
+   structured customer-discovery brief.
 6. The user reviews each signal beside timestamped evidence and recording
    playback.
 7. The user can copy the reviewed brief as Markdown.
 
 ## Discovery brief
 
-The brief contains:
+The user can select any combination of:
 
 - A concise interview summary
 - Customer pain points
@@ -45,7 +46,10 @@ The brief contains:
 - Explicit product requests
 - Follow-up commitments, including owners and dates only when stated
 - Missing information and open questions
-- Timestamped source evidence
+
+Timestamped source evidence and recording playback remain available regardless
+of the selected sections. Section selection controls synthesis and presentation;
+it does not reduce what Recall records or transcribes.
 
 ## Product guardrails
 

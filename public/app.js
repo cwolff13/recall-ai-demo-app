@@ -1,6 +1,11 @@
 const form = document.querySelector("#meeting-form");
 const meetingUrl = document.querySelector("#meeting-url");
 const submitButton = document.querySelector("#submit-button");
+const sectionSelector = document.querySelector("#section-selector");
+const sectionInputs = [
+  ...document.querySelectorAll('input[name="sections"]'),
+];
+const sectionError = document.querySelector("#section-error");
 const statusCard = document.querySelector("#status-card");
 const statusDot = document.querySelector("#status-dot");
 const statusTitle = document.querySelector("#status-title");
@@ -9,6 +14,7 @@ const result = document.querySelector("#result");
 const recording = document.querySelector("#recording");
 const copyButton = document.querySelector("#copy-button");
 const evidenceList = document.querySelector("#evidence-list");
+const defaultSections = sectionInputs.map((input) => input.value);
 
 const stageCopy = {
   idle: ["Ready for a meeting", "Paste a supported meeting URL to begin."],
@@ -60,6 +66,29 @@ const activeStages = new Set([
 let currentTranscript = [];
 let currentMarkdown = "";
 let recordingLoaded = false;
+let selectionSynchronized = false;
+
+function selectedSections() {
+  return sectionInputs
+    .filter((input) => input.checked)
+    .map((input) => input.value);
+}
+
+function synchronizeSections(sections) {
+  const selected = new Set(
+    Array.isArray(sections) ? sections : defaultSections,
+  );
+  sectionInputs.forEach((input) => {
+    input.checked = selected.has(input.value);
+  });
+}
+
+function validateSectionSelection() {
+  const valid = selectedSections().length > 0;
+  sectionError.hidden = valid;
+  sectionSelector.setAttribute("aria-invalid", String(!valid));
+  return valid;
+}
 
 function formatTime(seconds) {
   const wholeSeconds = Math.max(0, Math.floor(seconds));
@@ -171,10 +200,21 @@ function renderBrief(session) {
   currentMarkdown = session.markdown ?? "";
   const brief = session.brief;
   if (!brief) return;
+  const selected = new Set(session.sections ?? defaultSections);
 
   document
-    .querySelector("#summary")
-    .replaceChildren(claimNode(brief.summary.text, brief.summary.sourceIds));
+    .querySelectorAll("[data-brief-section]")
+    .forEach((section) => {
+      section.hidden = !selected.has(section.dataset.briefSection);
+    });
+
+  if (selected.has("summary") && brief.summary) {
+    document
+      .querySelector("#summary")
+      .replaceChildren(
+        claimNode(brief.summary.text, brief.summary.sourceIds),
+      );
+  }
   renderClaims(
     "#pain-points",
     brief.signals.filter((signal) => signal.kind === "pain_point"),
@@ -209,7 +249,17 @@ function renderSession(session) {
   const isActive = activeStages.has(session.stage);
   meetingUrl.disabled = isActive;
   submitButton.disabled = isActive;
+  sectionSelector.disabled = isActive;
   submitButton.textContent = isActive ? "Bot active" : "Send bot";
+
+  if (
+    !selectionSynchronized &&
+    session.stage !== "idle" &&
+    Array.isArray(session.sections)
+  ) {
+    synchronizeSections(session.sections);
+    selectionSynchronized = true;
+  }
 
   if (session.stage === "complete") {
     renderBrief(session);
@@ -232,6 +282,13 @@ async function refreshSession() {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (!validateSectionSelection()) {
+    sectionInputs[0]?.focus();
+    return;
+  }
+
+  const sections = selectedSections();
+  selectionSynchronized = true;
   recordingLoaded = false;
   result.hidden = true;
   renderSession({ stage: "sending" });
@@ -240,7 +297,7 @@ form.addEventListener("submit", async (event) => {
     const response = await fetch("/api/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ meetingUrl: meetingUrl.value }),
+      body: JSON.stringify({ meetingUrl: meetingUrl.value, sections }),
     });
     const session = await response.json();
     if (!response.ok && !session.stage) {
@@ -254,6 +311,10 @@ form.addEventListener("submit", async (event) => {
       error: "The local server could not start the meeting.",
     });
   }
+});
+
+sectionInputs.forEach((input) => {
+  input.addEventListener("change", validateSectionSelection);
 });
 
 copyButton.addEventListener("click", async () => {

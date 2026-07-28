@@ -3,7 +3,10 @@ import { createHmac } from "node:crypto";
 import { once } from "node:events";
 import { after, before, describe, it } from "node:test";
 import {
+  BRIEF_SECTIONS,
   briefToMarkdown,
+  generateBrief,
+  normalizeBriefSections,
   normalizeTranscript,
   validateBrief,
 } from "../src/brief.js";
@@ -17,6 +20,7 @@ import {
   createApp,
   createSessionStore,
   eventBelongsToSession,
+  processRecallEvent,
 } from "../src/server.js";
 
 const secret = `whsec_${Buffer.from("test signing key").toString("base64")}`;
@@ -392,6 +396,163 @@ describe("Transcript and brief evidence", () => {
     );
     assert.doesNotMatch(markdown, /context:/);
   });
+
+  it("normalizes section selections in display order", () => {
+    assert.deepEqual(normalizeBriefSections(), BRIEF_SECTIONS);
+    assert.deepEqual(
+      normalizeBriefSections([
+        "open_questions",
+        "pain_points",
+        "pain_points",
+      ]),
+      ["pain_points", "open_questions"],
+    );
+    assert.throws(() => normalizeBriefSections([]), /at least one/);
+    assert.throws(
+      () => normalizeBriefSections(["unknown"]),
+      /at least one/,
+    );
+  });
+
+  it("requires unchecked sections to remain empty", () => {
+    const selectedBrief = {
+      summary: null,
+      signals: [
+        {
+          kind: "pain_point",
+          text: "Manual reporting is slow.",
+          sourceIds: ["S1"],
+        },
+      ],
+      followUps: [],
+      openQuestions: [],
+    };
+
+    assert.equal(
+      validateBrief(selectedBrief, transcript, ["pain_points"]),
+      selectedBrief,
+    );
+    assert.throws(
+      () =>
+        validateBrief(
+          {
+            ...selectedBrief,
+            summary: {
+              text: "An unchecked summary.",
+              sourceIds: ["S1"],
+            },
+          },
+          transcript,
+          ["pain_points"],
+        ),
+      /invalid discovery brief/,
+    );
+    assert.throws(
+      () =>
+        validateBrief(
+          {
+            ...selectedBrief,
+            signals: [
+              ...selectedBrief.signals,
+              {
+                kind: "request",
+                text: "Add exports.",
+                sourceIds: ["S1"],
+              },
+            ],
+          },
+          transcript,
+          ["pain_points"],
+        ),
+      /invalid discovery brief/,
+    );
+    assert.throws(
+      () =>
+        validateBrief(
+          {
+            ...selectedBrief,
+            followUps: [
+              {
+                owner: null,
+                action: "Review reporting.",
+                dueDate: null,
+                sourceIds: ["S1"],
+              },
+            ],
+          },
+          transcript,
+          ["pain_points"],
+        ),
+      /invalid discovery brief/,
+    );
+
+    const markdown = briefToMarkdown(selectedBrief, transcript, [
+      "pain_points",
+    ]);
+    assert.match(markdown, /## Pain points/);
+    assert.match(markdown, /## Source evidence/);
+    assert.doesNotMatch(markdown, /## Summary/);
+    assert.doesNotMatch(markdown, /## Product requests/);
+    assert.doesNotMatch(markdown, /## Follow-ups/);
+  });
+
+  it("requests only the selected sections from structured generation", async () => {
+    let requestBody;
+    const generated = await generateBrief(
+      {
+        openRouterModel: "openai/gpt-5-mini",
+        openRouterApiKey: "test-key",
+        publicBaseUrl: "https://example.test",
+      },
+      transcript,
+      {
+        sections: ["pain_points"],
+        fetchImpl: async (_url, init) => {
+          requestBody = JSON.parse(init.body);
+          return new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      summary: null,
+                      signals: [
+                        {
+                          kind: "pain_point",
+                          text: "Reporting is slow.",
+                          sourceIds: ["S1"],
+                        },
+                      ],
+                      followUps: [],
+                      openQuestions: [],
+                    }),
+                  },
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        },
+      },
+    );
+
+    assert.equal(generated.summary, null);
+    assert.match(
+      requestBody.messages[0].content,
+      /selected brief sections: pain_points/,
+    );
+    assert.match(
+      requestBody.messages[0].content,
+      /Return null for an unselected summary/,
+    );
+    assert.deepEqual(
+      requestBody.response_format.json_schema.schema.properties.summary.type,
+      ["object", "null"],
+    );
+  });
 });
 
 describe("Single-session webhook flow", () => {
@@ -424,10 +585,70 @@ describe("Single-session webhook flow", () => {
     );
   });
 
+  it("uses the session selection for generation and Markdown", async () => {
+    const store = createSessionStore();
+    store.session = {
+      id: "session-1",
+      stage: "transcribing",
+      transcriptId: "transcript-1",
+      sections: ["pain_points"],
+    };
+    let generationOptions;
+
+    await processRecallEvent(
+      store,
+      {
+        event: "transcript.done",
+        data: {
+          transcript: {
+            id: "transcript-1",
+            metadata: { discovery_session_id: "session-1" },
+          },
+        },
+      },
+      {},
+      {
+        downloadTranscript: async () => [
+          {
+            participant: { name: "Customer" },
+            words: [
+              {
+                text: "Reporting is slow.",
+                start_timestamp: { relative: 1 },
+                end_timestamp: { relative: 2 },
+              },
+            ],
+          },
+        ],
+        generateBrief: async (_config, _transcript, options) => {
+          generationOptions = options;
+          return {
+            summary: null,
+            signals: [
+              {
+                kind: "pain_point",
+                text: "Reporting is slow.",
+                sourceIds: ["S1"],
+              },
+            ],
+            followUps: [],
+            openQuestions: [],
+          };
+        },
+      },
+    );
+
+    assert.deepEqual(generationOptions, { sections: ["pain_points"] });
+    assert.equal(store.session.stage, "complete");
+    assert.match(store.session.markdown, /## Pain points/);
+    assert.doesNotMatch(store.session.markdown, /## Summary/);
+  });
+
   describe("HTTP integration", () => {
     let server;
     let baseUrl;
     let createTranscriptCalls;
+    let createBotCalls;
 
     const store = createSessionStore();
     const config = {
@@ -439,9 +660,10 @@ describe("Single-session webhook flow", () => {
       openRouterModel: "openai/gpt-5-mini",
     };
     const services = {
-      createBot: async (_config, _meetingUrl, sessionId) => ({
-        id: `bot-${sessionId}`,
-      }),
+      createBot: async (_config, _meetingUrl, sessionId) => {
+        createBotCalls += 1;
+        return { id: `bot-${sessionId}` };
+      },
       createTranscript: async () => {
         createTranscriptCalls += 1;
         return { id: "transcript-1" };
@@ -455,6 +677,7 @@ describe("Single-session webhook flow", () => {
 
     before(async () => {
       createTranscriptCalls = 0;
+      createBotCalls = 0;
       const app = createApp({ config, store, services });
       server = app.listen(0, "127.0.0.1");
       await once(server, "listening");
@@ -467,6 +690,50 @@ describe("Single-session webhook flow", () => {
       });
     });
 
+    it("rejects invalid section selections before creating a bot", async () => {
+      for (const sections of [[], "summary", ["unknown"]]) {
+        const response = await fetch(`${baseUrl}/api/session`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            meetingUrl: "https://meet.google.com/example",
+            sections,
+          }),
+        });
+        assert.equal(response.status, 400);
+      }
+      assert.equal(createBotCalls, 0);
+    });
+
+    it("stores, normalizes, and returns a valid section subset", async () => {
+      const response = await fetch(`${baseUrl}/api/session`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          meetingUrl: "https://meet.google.com/example",
+          sections: [
+            "open_questions",
+            "pain_points",
+            "pain_points",
+          ],
+        }),
+      });
+      const session = await response.json();
+
+      assert.equal(response.status, 201);
+      assert.deepEqual(session.sections, [
+        "pain_points",
+        "open_questions",
+      ]);
+      assert.deepEqual(store.session.sections, [
+        "pain_points",
+        "open_questions",
+      ]);
+
+      store.session = createSessionStore().session;
+      store.webhookIds.clear();
+    });
+
     it("creates one session and processes a signed recording webhook once", async () => {
       const created = await fetch(`${baseUrl}/api/session`, {
         method: "POST",
@@ -476,6 +743,7 @@ describe("Single-session webhook flow", () => {
         }),
       });
       assert.equal(created.status, 201);
+      assert.deepEqual((await created.clone().json()).sections, BRIEF_SECTIONS);
 
       const sessionId = store.session.id;
       const body = JSON.stringify({
