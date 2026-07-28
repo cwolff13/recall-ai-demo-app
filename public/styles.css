@@ -465,6 +465,90 @@ h3 {
   cursor: not-allowed;
 }
 
+.custom-section-selector {
+  min-width: 0;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.custom-section-card {
+  overflow: hidden;
+  border: 1px solid #c9d2cc;
+  border-radius: 12px;
+  background: white;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.custom-section-card:has(#custom-section-enabled:checked) {
+  border-color: #8eb79f;
+  background: var(--accent-soft);
+}
+
+.custom-section-card:has(#custom-section-enabled:focus-visible) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(31 107 72 / 14%);
+}
+
+.meeting-form .custom-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 0;
+  padding: 13px 14px;
+  cursor: pointer;
+}
+
+.custom-section-toggle input {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.custom-section-toggle span {
+  display: grid;
+  gap: 3px;
+}
+
+.custom-section-toggle strong {
+  font-size: 0.8rem;
+}
+
+.custom-section-toggle small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.custom-section-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 16px;
+  padding: 2px 14px 15px 42px;
+}
+
+.custom-section-fields[hidden] {
+  display: none;
+}
+
+.custom-section-fields textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+
+.custom-section-selector:disabled {
+  opacity: 0.62;
+}
+
+.custom-section-selector:disabled .custom-section-toggle {
+  cursor: not-allowed;
+}
+
 .selection-error {
   margin: 10px 0 0;
   color: var(--danger);
@@ -721,6 +805,10 @@ video {
     grid-template-columns: 1fr;
   }
 
+  .custom-section-fields {
+    grid-template-columns: 1fr;
+  }
+
   .evidence-list {
     max-height: 420px;
   }
@@ -749,6 +837,10 @@ video {
     align-items: flex-start;
     flex-direction: column;
     gap: 2px;
+  }
+
+  .custom-section-fields {
+    padding-left: 14px;
   }
 
   .brief-section {

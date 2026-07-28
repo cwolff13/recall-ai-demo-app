@@ -321,8 +321,72 @@
               role="alert"
               hidden
             >
-              Choose at least one section for the brief.
+              Choose at least one standard or custom section for the brief.
             </p>
+          </fieldset>
+          <fieldset
+            id="custom-section-selector"
+            class="custom-section-selector"
+          >
+            <legend class="visually-hidden">Custom brief section</legend>
+            <div class="custom-section-card">
+              <label class="custom-section-toggle">
+                <input
+                  id="custom-section-enabled"
+                  type="checkbox"
+                  aria-controls="custom-section-fields"
+                  aria-expanded="false"
+                />
+                <span>
+                  <strong>Custom brief section</strong>
+                  <small>
+                    Define one additional category tailored to this meeting.
+                  </small>
+                </span>
+              </label>
+              <div
+                id="custom-section-fields"
+                class="custom-section-fields"
+                hidden
+              >
+                <div>
+                  <div class="field-heading">
+                    <label for="custom-section-name">Section name</label>
+                    <span>Up to 60 characters</span>
+                  </div>
+                  <input
+                    id="custom-section-name"
+                    class="text-input"
+                    type="text"
+                    maxlength="60"
+                    placeholder="Competitive signals"
+                    required
+                    disabled
+                  />
+                </div>
+                <div>
+                  <div class="field-heading">
+                    <label for="custom-section-guidance">
+                      What should this section collect?
+                    </label>
+                    <span>Up to 500 characters</span>
+                  </div>
+                  <textarea
+                    id="custom-section-guidance"
+                    class="text-input"
+                    maxlength="500"
+                    rows="3"
+                    placeholder="Capture mentions of competitors, alternatives, and reasons for preferring them."
+                    required
+                    disabled
+                  ></textarea>
+                  <p class="field-hint">
+                    The model will include only transcript-supported items and
+                    link each one to its source timestamp.
+                  </p>
+                </div>
+              </div>
+            </div>
           </fieldset>
           <p class="form-note">
             The meeting host is responsible for participant consent.
@@ -403,6 +467,11 @@
             >
               <h3>Open questions</h3>
               <div id="open-questions"></div>
+            </section>
+
+            <section id="custom-brief-section" class="brief-section" hidden>
+              <h3 id="custom-brief-heading"></h3>
+              <div id="custom-brief-items"></div>
             </section>
           </article>
         </div>

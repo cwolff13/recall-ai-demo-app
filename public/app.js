@@ -16,6 +16,19 @@ const sectionInputs = [
   ...document.querySelectorAll('input[name="sections"]'),
 ];
 const sectionError = document.querySelector("#section-error");
+const customSectionSelector = document.querySelector(
+  "#custom-section-selector",
+);
+const customSectionEnabled = document.querySelector(
+  "#custom-section-enabled",
+);
+const customSectionFields = document.querySelector(
+  "#custom-section-fields",
+);
+const customSectionName = document.querySelector("#custom-section-name");
+const customSectionGuidance = document.querySelector(
+  "#custom-section-guidance",
+);
 const statusCard = document.querySelector("#status-card");
 const statusDot = document.querySelector("#status-dot");
 const statusTitle = document.querySelector("#status-title");
@@ -24,6 +37,12 @@ const result = document.querySelector("#result");
 const recording = document.querySelector("#recording");
 const copyButton = document.querySelector("#copy-button");
 const evidenceList = document.querySelector("#evidence-list");
+const customBriefSection = document.querySelector(
+  "#custom-brief-section",
+);
+const customBriefHeading = document.querySelector(
+  "#custom-brief-heading",
+);
 const defaultSections = sectionInputs.map((input) => input.value);
 const defaultBotName = "Discovery Notes Bot";
 const maxBotImageBytes = 1_300_000;
@@ -154,6 +173,34 @@ function selectedSections() {
     .map((input) => input.value);
 }
 
+function customSectionValue() {
+  if (!customSectionEnabled.checked) return null;
+  return {
+    name: customSectionName.value.trim(),
+    guidance: customSectionGuidance.value.trim(),
+  };
+}
+
+function updateCustomSectionControls() {
+  const enabled = customSectionEnabled.checked;
+  const locked = customSectionSelector.disabled;
+  customSectionFields.hidden = !enabled;
+  customSectionName.disabled = !enabled || locked;
+  customSectionGuidance.disabled = !enabled || locked;
+  customSectionEnabled.setAttribute("aria-expanded", String(enabled));
+}
+
+function synchronizeCustomSection(customSection) {
+  const enabled =
+    customSection &&
+    typeof customSection.name === "string" &&
+    typeof customSection.guidance === "string";
+  customSectionEnabled.checked = Boolean(enabled);
+  customSectionName.value = enabled ? customSection.name : "";
+  customSectionGuidance.value = enabled ? customSection.guidance : "";
+  updateCustomSectionControls();
+}
+
 function synchronizeSections(sections) {
   const selected = new Set(
     Array.isArray(sections) ? sections : defaultSections,
@@ -164,7 +211,8 @@ function synchronizeSections(sections) {
 }
 
 function validateSectionSelection() {
-  const valid = selectedSections().length > 0;
+  const valid =
+    selectedSections().length > 0 || customSectionEnabled.checked;
   sectionError.hidden = valid;
   sectionSelector.setAttribute("aria-invalid", String(!valid));
   return valid;
@@ -309,6 +357,11 @@ function renderBrief(session) {
   );
   renderFollowUps(brief.followUps);
   renderClaims("#open-questions", brief.openQuestions);
+  customBriefSection.hidden = !session.customSection;
+  if (session.customSection) {
+    customBriefHeading.textContent = session.customSection.name;
+    renderClaims("#custom-brief-items", brief.customItems ?? []);
+  }
   renderEvidence(currentTranscript);
 
   if (session.hasRecording && !recordingLoaded) {
@@ -340,6 +393,8 @@ function renderSession(session) {
   removeBotImage.disabled = isActive;
   botCustomization.classList.toggle("is-disabled", isActive);
   sectionSelector.disabled = isActive;
+  customSectionSelector.disabled = isActive;
+  updateCustomSectionControls();
   submitButton.textContent = isActive ? "Bot active" : "Send bot";
 
   if (
@@ -357,6 +412,7 @@ function renderSession(session) {
     Array.isArray(session.sections)
   ) {
     synchronizeSections(session.sections);
+    synchronizeCustomSection(session.customSection);
     selectionSynchronized = true;
   }
 
@@ -388,6 +444,7 @@ form.addEventListener("submit", async (event) => {
   }
 
   const sections = selectedSections();
+  const customSection = customSectionValue();
   const botName = botNameInput.value.trim() || defaultBotName;
   botNameInput.value = botName;
   selectionSynchronized = true;
@@ -403,6 +460,7 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify({
         meetingUrl: meetingUrl.value,
         sections,
+        customSection,
         botName,
         botImage: currentBotImage,
       }),
@@ -423,6 +481,12 @@ form.addEventListener("submit", async (event) => {
 
 sectionInputs.forEach((input) => {
   input.addEventListener("change", validateSectionSelection);
+});
+
+customSectionEnabled.addEventListener("change", () => {
+  updateCustomSectionControls();
+  validateSectionSelection();
+  if (customSectionEnabled.checked) customSectionName.focus();
 });
 
 botImageInput.addEventListener("change", () => {

@@ -4,10 +4,10 @@ A small Recall.ai demo that turns one customer interview into a source-linked
 discovery brief.
 
 Paste in a Google Meet URL, optionally customize the bot's name and camera card,
-choose the sections you want, and send a Recall bot to the meeting. After the
-call, the app organizes the conversation into a summary, pain points, desired
-outcomes, product requests, follow-ups, and open questions. Each result links
-back to the supporting transcript moment and recording.
+choose the sections you want, optionally define one custom section, and send a
+Recall bot to the meeting. After the call, the app organizes the conversation
+into a source-linked brief tailored to those choices. Each result links back to
+the supporting transcript moment and recording.
 
 This workflow shows how a Recall customer could build a useful product on top
 of meeting capture, transcription, webhooks, and recording playback.
@@ -44,8 +44,8 @@ Open your `PUBLIC_API_BASE_URL`
 
 1. Start a Google Meet interview.
 2. Paste the meeting URL into the app. Optionally customize the bot name and
-   upload a JPEG camera card, then choose the brief sections. Every section is
-   selected by default.
+   upload a JPEG camera card, then choose the brief sections and optionally
+   define one custom section. Every standard section is selected by default.
 3. Send the bot and admit it if prompted.
 4. Confirm participant consent, then hold the interview.
 5. End the meeting and keep the app running while Recall processes it.
@@ -74,8 +74,11 @@ the complete meeting, and source evidence remains available for review.
 
 `POST /api/session` accepts an optional `sections` array containing any of:
 `summary`, `pain_points`, `desired_outcomes`, `product_requests`, `follow_ups`,
-and `open_questions`. Omitting the field selects every section. `GET
-/api/session` returns the normalized selection locked to the current meeting.
+and `open_questions`. It also accepts an optional `customSection` object with a
+`name` of up to 60 characters and extraction `guidance` of up to 500 characters.
+Omitting `sections` selects every standard section; an empty array is accepted
+only with a valid custom section. `GET /api/session` returns the normalized
+standard and custom selection locked to the current meeting.
 
 ## Check the code
 
@@ -85,5 +88,6 @@ npm test
 ```
 
 These checks cover webhook handling, bot appearance validation, transcript
-evidence, section validation, selective generation, and Markdown with automated
-tests. A real meeting is still required to verify the complete Recall workflow.
+evidence, standard and custom section validation, selective generation, and
+Markdown with automated tests. A real meeting is still required to verify the
+complete Recall workflow.

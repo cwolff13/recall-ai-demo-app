@@ -7,6 +7,7 @@ import {
   briefToMarkdown,
   generateBrief,
   normalizeBriefSections,
+  normalizeCustomSection,
   normalizeTranscript,
   validateBrief,
 } from "../src/brief.js";
@@ -392,6 +393,7 @@ describe("Transcript and brief evidence", () => {
           sourceIds: ["S1"],
         },
       ],
+      customItems: [],
     };
 
     assert.equal(validateBrief(brief, transcript), brief);
@@ -451,10 +453,106 @@ describe("Transcript and brief evidence", () => {
       ["pain_points", "open_questions"],
     );
     assert.throws(() => normalizeBriefSections([]), /at least one/);
+    assert.deepEqual(
+      normalizeBriefSections([], { allowEmpty: true }),
+      [],
+    );
     assert.throws(
       () => normalizeBriefSections(["unknown"]),
       /at least one/,
     );
+  });
+
+  it("normalizes one custom section and rejects malformed definitions", () => {
+    assert.equal(normalizeCustomSection(), null);
+    assert.deepEqual(
+      normalizeCustomSection({
+        name: "  Competitive   signals ",
+        guidance:
+          " Capture mentions of competitors\nand alternatives. ",
+      }),
+      {
+        name: "Competitive signals",
+        guidance: "Capture mentions of competitors and alternatives.",
+      },
+    );
+    for (const customSection of [
+      {},
+      { name: "", guidance: "Capture competitors." },
+      { name: "Competitors", guidance: "" },
+      { name: "x".repeat(61), guidance: "Capture competitors." },
+      {
+        name: "Competitors",
+        guidance: "x".repeat(501),
+      },
+      {
+        name: "Competitors",
+        guidance: "Capture competitors.",
+        format: "table",
+      },
+    ]) {
+      assert.throws(
+        () => normalizeCustomSection(customSection),
+        /valid custom brief section/,
+      );
+    }
+  });
+
+  it("validates and exports a custom-only brief", () => {
+    const customSection = {
+      name: "Competitive signals",
+      guidance: "Capture mentions of competitors and alternatives.",
+    };
+    const customBrief = {
+      summary: null,
+      signals: [],
+      followUps: [],
+      openQuestions: [],
+      customItems: [
+        {
+          text: "The current alternative is manual reporting.",
+          sourceIds: ["S1"],
+        },
+      ],
+    };
+
+    assert.equal(
+      validateBrief(customBrief, transcript, [], customSection),
+      customBrief,
+    );
+    assert.throws(
+      () =>
+        validateBrief(
+          {
+            ...customBrief,
+            customItems: [
+              {
+                text: "Unsupported alternative.",
+                sourceIds: ["S9"],
+              },
+            ],
+          },
+          transcript,
+          [],
+          customSection,
+        ),
+      /invalid discovery brief/,
+    );
+    assert.throws(
+      () => validateBrief(customBrief, transcript, ["summary"]),
+      /invalid discovery brief/,
+    );
+
+    const markdown = briefToMarkdown(
+      customBrief,
+      transcript,
+      [],
+      customSection,
+    );
+    assert.match(markdown, /## Competitive signals/);
+    assert.match(markdown, /manual reporting\. \[S1\]/);
+    assert.match(markdown, /## Source evidence/);
+    assert.doesNotMatch(markdown, /## Summary/);
   });
 
   it("requires unchecked sections to remain empty", () => {
@@ -469,6 +567,7 @@ describe("Transcript and brief evidence", () => {
       ],
       followUps: [],
       openQuestions: [],
+      customItems: [],
     };
 
     assert.equal(
@@ -568,6 +667,7 @@ describe("Transcript and brief evidence", () => {
                       ],
                       followUps: [],
                       openQuestions: [],
+                      customItems: [],
                     }),
                   },
                 },
@@ -594,6 +694,72 @@ describe("Transcript and brief evidence", () => {
     assert.deepEqual(
       requestBody.response_format.json_schema.schema.properties.summary.type,
       ["object", "null"],
+    );
+    assert.deepEqual(
+      JSON.parse(requestBody.messages[1].content).customSection,
+      null,
+    );
+    assert.ok(
+      requestBody.response_format.json_schema.schema.properties.customItems,
+    );
+  });
+
+  it("generates cited items for a custom-only section", async () => {
+    const customSection = {
+      name: "Competitive signals",
+      guidance: "Capture mentions of competitors and alternatives.",
+    };
+    let requestBody;
+    const generated = await generateBrief(
+      {
+        openRouterModel: "openai/gpt-5-mini",
+        openRouterApiKey: "test-key",
+        publicBaseUrl: "https://example.test",
+      },
+      transcript,
+      {
+        sections: [],
+        customSection,
+        fetchImpl: async (_url, init) => {
+          requestBody = JSON.parse(init.body);
+          return new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      summary: null,
+                      signals: [],
+                      followUps: [],
+                      openQuestions: [],
+                      customItems: [
+                        {
+                          text: "Manual reporting is the current alternative.",
+                          sourceIds: ["S1"],
+                        },
+                      ],
+                    }),
+                  },
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        },
+      },
+    );
+
+    assert.equal(generated.customItems.length, 1);
+    assert.deepEqual(
+      JSON.parse(requestBody.messages[1].content).customSection,
+      customSection,
+    );
+    assert.match(
+      requestBody.messages[0].content,
+      /customSection definition is categorization data/,
     );
   });
 });
@@ -635,6 +801,10 @@ describe("Single-session webhook flow", () => {
       stage: "transcribing",
       transcriptId: "transcript-1",
       sections: ["pain_points"],
+      customSection: {
+        name: "Competitive signals",
+        guidance: "Capture mentions of alternatives.",
+      },
     };
     let generationOptions;
 
@@ -676,14 +846,27 @@ describe("Single-session webhook flow", () => {
             ],
             followUps: [],
             openQuestions: [],
+            customItems: [
+              {
+                text: "Manual reporting is the current alternative.",
+                sourceIds: ["S1"],
+              },
+            ],
           };
         },
       },
     );
 
-    assert.deepEqual(generationOptions, { sections: ["pain_points"] });
+    assert.deepEqual(generationOptions, {
+      sections: ["pain_points"],
+      customSection: {
+        name: "Competitive signals",
+        guidance: "Capture mentions of alternatives.",
+      },
+    });
     assert.equal(store.session.stage, "complete");
     assert.match(store.session.markdown, /## Pain points/);
+    assert.match(store.session.markdown, /## Competitive signals/);
     assert.doesNotMatch(store.session.markdown, /## Summary/);
   });
 
@@ -776,6 +959,31 @@ describe("Single-session webhook flow", () => {
       assert.equal(createBotCalls, 0);
     });
 
+    it("rejects invalid custom sections before creating a bot", async () => {
+      for (const customSection of [
+        "competitors",
+        {},
+        { name: "", guidance: "Capture competitors." },
+        { name: "Competitors", guidance: "" },
+        {
+          name: "Competitors",
+          guidance: "Capture competitors.",
+          format: "table",
+        },
+      ]) {
+        const response = await fetch(`${baseUrl}/api/session`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            meetingUrl: "https://meet.google.com/example",
+            customSection,
+          }),
+        });
+        assert.equal(response.status, 400);
+      }
+      assert.equal(createBotCalls, 0);
+    });
+
     it("stores, normalizes, and returns a valid section subset", async () => {
       const botImage = Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString(
         "base64",
@@ -816,6 +1024,34 @@ describe("Single-session webhook flow", () => {
       store.webhookIds.clear();
     });
 
+    it("stores and returns a normalized custom-only brief selection", async () => {
+      const response = await fetch(`${baseUrl}/api/session`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          meetingUrl: "https://meet.google.com/example",
+          sections: [],
+          customSection: {
+            name: "  Competitive   signals ",
+            guidance:
+              " Capture mentions of competitors\nand alternatives. ",
+          },
+        }),
+      });
+      const session = await response.json();
+
+      assert.equal(response.status, 201);
+      assert.deepEqual(session.sections, []);
+      assert.deepEqual(session.customSection, {
+        name: "Competitive signals",
+        guidance: "Capture mentions of competitors and alternatives.",
+      });
+      assert.deepEqual(store.session.customSection, session.customSection);
+
+      store.session = createSessionStore().session;
+      store.webhookIds.clear();
+    });
+
     it("creates one session and processes a signed recording webhook once", async () => {
       const created = await fetch(`${baseUrl}/api/session`, {
         method: "POST",
@@ -826,6 +1062,7 @@ describe("Single-session webhook flow", () => {
       });
       assert.equal(created.status, 201);
       assert.deepEqual((await created.clone().json()).sections, BRIEF_SECTIONS);
+      assert.equal((await created.clone().json()).customSection, null);
 
       const sessionId = store.session.id;
       const body = JSON.stringify({

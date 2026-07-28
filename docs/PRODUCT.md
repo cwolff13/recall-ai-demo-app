@@ -23,8 +23,8 @@ authoritative research.
 ## Workflow
 
 1. The user provides a supported meeting URL, optionally customizes the bot name
-   and temporary camera card, and chooses which discovery-brief sections to
-   include.
+   and temporary camera card, chooses which standard discovery-brief sections
+   to include, and can define one custom section for that meeting.
 2. A Recall Meeting Bot joins with the selected appearance, notifies
    participants in chat, and records the interview.
 3. Verified Recall webhooks communicate capture and processing state.
@@ -48,6 +48,11 @@ The user can select any combination of:
 - Follow-up commitments, including owners and dates only when stated
 - Missing information and open questions
 
+The user can also add one custom section with a name and extraction guidance.
+Custom output uses the same source-linked bullet format as the standard signal
+sections. A brief can contain only the custom section, but arbitrary schemas,
+tables, field types, and multiple custom sections are outside the current scope.
+
 Timestamped source evidence and recording playback remain available regardless
 of the selected sections. Section selection controls synthesis and presentation;
 it does not reduce what Recall records or transcribes.
@@ -59,6 +64,8 @@ it does not reduce what Recall records or transcribes.
 - Identify missing information instead of silently filling gaps.
 - Every summary, signal, follow-up, and open question must cite transcript
   evidence.
+- Every custom-section item must cite transcript evidence, and the custom
+  definition cannot override the brief's evidence or output rules.
 - The meeting host remains responsible for participant notice and consent.
 - An uploaded camera card is passed to Recall for the current bot and is not
   retained as an application asset.

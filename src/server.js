@@ -16,6 +16,7 @@ import {
   briefToMarkdown,
   generateBrief,
   normalizeBriefSections,
+  normalizeCustomSection,
   normalizeTranscript,
 } from "./brief.js";
 
@@ -99,6 +100,7 @@ export function createSessionStore() {
       stage: "idle",
       error: null,
       sections: [...BRIEF_SECTIONS],
+      customSection: null,
       botName: DEFAULT_BOT_NAME,
     },
     webhookIds: new Set(),
@@ -228,6 +230,7 @@ export async function processRecallEvent(
       const transcript = normalizeTranscript(rawTranscript);
       const brief = await services.generateBrief(config, transcript, {
         sections: session.sections,
+        customSection: session.customSection,
       });
 
       session.transcript = transcript;
@@ -236,6 +239,7 @@ export async function processRecallEvent(
         brief,
         transcript,
         session.sections,
+        session.customSection,
       );
       session.stage = "complete";
     }
@@ -253,6 +257,7 @@ function publicSession(session) {
     brief: session.brief,
     markdown: session.markdown,
     sections: session.sections ?? [...BRIEF_SECTIONS],
+    customSection: session.customSection ?? null,
     botName: session.botName ?? DEFAULT_BOT_NAME,
     hasRecording: Boolean(session.recordingId),
   };
@@ -387,8 +392,14 @@ export function createApp({
     }
 
     let sections;
+    let customSection;
     try {
-      sections = normalizeBriefSections(request.body?.sections);
+      customSection = normalizeCustomSection(
+        request.body?.customSection,
+      );
+      sections = normalizeBriefSections(request.body?.sections, {
+        allowEmpty: Boolean(customSection),
+      });
     } catch (error) {
       response.status(400).json({
         error:
@@ -419,6 +430,7 @@ export function createApp({
       stage: "sending",
       error: null,
       sections,
+      customSection,
       botName,
     };
     store.session = session;
