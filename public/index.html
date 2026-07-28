@@ -34,6 +34,75 @@
             />
             <button id="submit-button" type="submit">Send bot</button>
           </div>
+          <details id="bot-customization" class="bot-customization">
+            <summary>
+              <span>Customize bot appearance</span>
+              <span class="optional-label">Optional</span>
+            </summary>
+            <div class="customization-grid">
+              <div class="customization-field">
+                <label for="bot-name">Bot name</label>
+                <input
+                  id="bot-name"
+                  class="text-input"
+                  name="botName"
+                  type="text"
+                  value="Discovery Notes Bot"
+                  maxlength="100"
+                  required
+                />
+                <p class="field-hint">
+                  Shown to participants when the meeting platform supports a
+                  custom name.
+                </p>
+              </div>
+
+              <div class="customization-field">
+                <div class="field-heading">
+                  <label for="bot-image">Camera card</label>
+                  <span>JPEG · up to 1.3 MB</span>
+                </div>
+                <div class="image-picker">
+                  <label class="upload-button">
+                    <input
+                      id="bot-image"
+                      class="visually-hidden"
+                      name="botImage"
+                      type="file"
+                      accept="image/jpeg,.jpg,.jpeg"
+                    />
+                    <span>Choose JPEG</span>
+                  </label>
+                  <span id="bot-image-name" class="image-name">
+                    No image selected
+                  </span>
+                </div>
+                <div id="bot-image-preview" class="camera-preview" hidden>
+                  <img
+                    id="bot-image-preview-image"
+                    alt="Selected bot camera card preview"
+                  />
+                  <button
+                    id="remove-bot-image"
+                    class="remove-image"
+                    type="button"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <p
+                  id="bot-image-error"
+                  class="selection-error"
+                  role="alert"
+                  hidden
+                ></p>
+                <p class="field-hint">
+                  Displayed as a 16:9 camera tile while the bot is in the
+                  meeting, not as its profile picture.
+                </p>
+              </div>
+            </div>
+          </details>
           <fieldset id="section-selector" class="section-selector">
             <legend>Choose what to include in your brief</legend>
             <p class="selector-hint">

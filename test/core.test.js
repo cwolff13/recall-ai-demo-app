@@ -11,6 +11,7 @@ import {
   validateBrief,
 } from "../src/brief.js";
 import {
+  createBot,
   recallRequest,
   retryDelayMs,
   verifyRecallRequest,
@@ -112,6 +113,48 @@ describe("Recall retries", () => {
 
     assert.deepEqual(await response.json(), { id: "bot-1" });
     assert.deepEqual(waits, [5000]);
+  });
+});
+
+describe("Recall bot creation", () => {
+  it("adds a custom name and static camera card to the bot payload", async () => {
+    let requestBody;
+    const botImage = Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64");
+
+    const bot = await createBot(
+      {
+        recallRegion: "us-west-2",
+        recallApiKey: "test-key",
+      },
+      "https://meet.google.com/example",
+      "session-1",
+      {
+        botName: "Research Companion",
+        botImage,
+      },
+      {
+        fetchImpl: async (_url, init) => {
+          requestBody = JSON.parse(init.body);
+          return new Response('{"id":"bot-1"}', {
+            status: 201,
+            headers: { "content-type": "application/json" },
+          });
+        },
+      },
+    );
+
+    assert.equal(bot.id, "bot-1");
+    assert.equal(requestBody.bot_name, "Research Companion");
+    assert.deepEqual(requestBody.automatic_video_output, {
+      in_call_not_recording: {
+        kind: "jpeg",
+        b64_data: botImage,
+      },
+      in_call_recording: {
+        kind: "jpeg",
+        b64_data: botImage,
+      },
+    });
   });
 });
 
@@ -649,6 +692,7 @@ describe("Single-session webhook flow", () => {
     let baseUrl;
     let createTranscriptCalls;
     let createBotCalls;
+    let createBotCustomization;
 
     const store = createSessionStore();
     const config = {
@@ -660,8 +704,14 @@ describe("Single-session webhook flow", () => {
       openRouterModel: "openai/gpt-5-mini",
     };
     const services = {
-      createBot: async (_config, _meetingUrl, sessionId) => {
+      createBot: async (
+        _config,
+        _meetingUrl,
+        sessionId,
+        customization,
+      ) => {
         createBotCalls += 1;
+        createBotCustomization = customization;
         return { id: `bot-${sessionId}` };
       },
       createTranscript: async () => {
@@ -678,6 +728,7 @@ describe("Single-session webhook flow", () => {
     before(async () => {
       createTranscriptCalls = 0;
       createBotCalls = 0;
+      createBotCustomization = null;
       const app = createApp({ config, store, services });
       server = app.listen(0, "127.0.0.1");
       await once(server, "listening");
@@ -705,12 +756,37 @@ describe("Single-session webhook flow", () => {
       assert.equal(createBotCalls, 0);
     });
 
+    it("rejects invalid bot appearance before creating a bot", async () => {
+      for (const appearance of [
+        { botName: "x".repeat(101) },
+        {
+          botImage: Buffer.from("not a jpeg").toString("base64"),
+        },
+      ]) {
+        const response = await fetch(`${baseUrl}/api/session`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            meetingUrl: "https://meet.google.com/example",
+            ...appearance,
+          }),
+        });
+        assert.equal(response.status, 400);
+      }
+      assert.equal(createBotCalls, 0);
+    });
+
     it("stores, normalizes, and returns a valid section subset", async () => {
+      const botImage = Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString(
+        "base64",
+      );
       const response = await fetch(`${baseUrl}/api/session`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           meetingUrl: "https://meet.google.com/example",
+          botName: "  Research   Companion  ",
+          botImage,
           sections: [
             "open_questions",
             "pain_points",
@@ -729,6 +805,12 @@ describe("Single-session webhook flow", () => {
         "pain_points",
         "open_questions",
       ]);
+      assert.equal(session.botName, "Research Companion");
+      assert.equal(store.session.botName, "Research Companion");
+      assert.deepEqual(createBotCustomization, {
+        botName: "Research Companion",
+        botImage,
+      });
 
       store.session = createSessionStore().session;
       store.webhookIds.clear();

@@ -3,11 +3,11 @@
 A small Recall.ai demo that turns one customer interview into a source-linked
 discovery brief.
 
-Paste in a Google Meet URL, choose the sections you want, and send a Recall bot
-to the meeting. After the call, the app organizes the conversation into a
-summary, pain points, desired outcomes, product requests, follow-ups, and open
-questions. Each result links back to the supporting transcript moment and
-recording.
+Paste in a Google Meet URL, optionally customize the bot's name and camera card,
+choose the sections you want, and send a Recall bot to the meeting. After the
+call, the app organizes the conversation into a summary, pain points, desired
+outcomes, product requests, follow-ups, and open questions. Each result links
+back to the supporting transcript moment and recording.
 
 This workflow shows how a Recall customer could build a useful product on top
 of meeting capture, transcription, webhooks, and recording playback.
@@ -43,9 +43,10 @@ Open your `PUBLIC_API_BASE_URL`
 ## Try the demo
 
 1. Start a Google Meet interview.
-2. Paste the meeting URL into the app and choose the brief sections. Every
-   section is selected by default.
-3. Send the bot and admit **Discovery Notes Bot** if prompted.
+2. Paste the meeting URL into the app. Optionally customize the bot name and
+   upload a JPEG camera card, then choose the brief sections. Every section is
+   selected by default.
+3. Send the bot and admit it if prompted.
 4. Confirm participant consent, then hold the interview.
 5. End the meeting and keep the app running while Recall processes it.
 6. Review the generated brief and use its citations to revisit the source
@@ -53,6 +54,17 @@ Open your `PUBLIC_API_BASE_URL`
 
 The demo supports one in-memory meeting at a time. It intentionally omits
 authentication, durable storage, and concurrent processing.
+
+## Bot appearance
+
+The optional bot name is sent through Recall's `bot_name` field. The optional
+JPEG is sent as `automatic_video_output` for both the pre-recording and recording
+states, so it appears as the bot's 16:9 camera tile rather than its participant
+profile picture.
+
+The browser previews the image before submission. The server accepts JPEGs up to
+1.3 MB, verifies the decoded file signature, passes the image to Recall, and
+does not retain it in session state.
 
 ## Section selection
 
@@ -72,6 +84,6 @@ npm run check
 npm test
 ```
 
-These checks cover webhook handling, transcript evidence, section validation,
-selective generation, and Markdown with automated tests. A real meeting is still
-required to verify the complete Recall workflow.
+These checks cover webhook handling, bot appearance validation, transcript
+evidence, section validation, selective generation, and Markdown with automated
+tests. A real meeting is still required to verify the complete Recall workflow.

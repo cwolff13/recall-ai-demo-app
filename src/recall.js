@@ -113,7 +113,20 @@ export async function recallRequest(
   throw new Error("Recall request exceeded its retry limit");
 }
 
-export async function createBot(config, meetingUrl, sessionId, options) {
+export async function createBot(
+  config,
+  meetingUrl,
+  sessionId,
+  customization = {},
+  options,
+) {
+  const cameraCard = customization.botImage
+    ? {
+        kind: "jpeg",
+        b64_data: customization.botImage,
+      }
+    : null;
+
   const response = await recallRequest(
     config,
     "/bot/",
@@ -122,11 +135,19 @@ export async function createBot(config, meetingUrl, sessionId, options) {
       body: JSON.stringify({
         meeting_url: meetingUrl,
         join_at: new Date().toISOString(),
-        bot_name: "Discovery Notes Bot",
+        bot_name: customization.botName || "Discovery Notes Bot",
         metadata: { discovery_session_id: sessionId },
         recording_config: {
           video_mixed_mp4: {},
         },
+        ...(cameraCard
+          ? {
+              automatic_video_output: {
+                in_call_not_recording: cameraCard,
+                in_call_recording: cameraCard,
+              },
+            }
+          : {}),
         chat: {
           on_bot_join: {
             send_to: "everyone",

@@ -42,6 +42,10 @@ const BOT_STAGES = {
   "bot.done": "processing",
 };
 
+const DEFAULT_BOT_NAME = "Discovery Notes Bot";
+const MAX_BOT_NAME_LENGTH = 100;
+const MAX_BOT_IMAGE_BYTES = 1_300_000;
+
 function requiredEnvironment(name, environment) {
   const value = environment[name]?.trim();
   if (!value) throw new Error(`Missing required environment value: ${name}`);
@@ -95,6 +99,7 @@ export function createSessionStore() {
       stage: "idle",
       error: null,
       sections: [...BRIEF_SECTIONS],
+      botName: DEFAULT_BOT_NAME,
     },
     webhookIds: new Set(),
   };
@@ -248,6 +253,7 @@ function publicSession(session) {
     brief: session.brief,
     markdown: session.markdown,
     sections: session.sections ?? [...BRIEF_SECTIONS],
+    botName: session.botName ?? DEFAULT_BOT_NAME,
     hasRecording: Boolean(session.recordingId),
   };
 }
@@ -259,6 +265,44 @@ function validMeetingUrl(value) {
   } catch {
     return false;
   }
+}
+
+function normalizeBotName(value) {
+  if (value === undefined || value === null) return DEFAULT_BOT_NAME;
+  if (typeof value !== "string") {
+    throw new Error("Bot name must be text");
+  }
+
+  const name = value.trim().replace(/\s+/g, " ");
+  if (!name) return DEFAULT_BOT_NAME;
+  if (name.length > MAX_BOT_NAME_LENGTH) {
+    throw new Error("Bot name must be 100 characters or fewer");
+  }
+  return name;
+}
+
+function normalizeBotImage(value) {
+  if (value === undefined || value === null || value === "") return null;
+  if (
+    typeof value !== "string" ||
+    value.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(value)
+  ) {
+    throw new Error("Camera card must be a valid JPEG");
+  }
+
+  const image = Buffer.from(value, "base64");
+  if (
+    image.length === 0 ||
+    image.length > MAX_BOT_IMAGE_BYTES ||
+    image[0] !== 0xff ||
+    image[1] !== 0xd8 ||
+    image[2] !== 0xff ||
+    image.toString("base64") !== value
+  ) {
+    throw new Error("Camera card must be a JPEG up to 1.3 MB");
+  }
+  return value;
 }
 
 const defaultServices = {
@@ -324,7 +368,7 @@ export function createApp({
     },
   );
 
-  app.use(express.json({ limit: "32kb" }));
+  app.use(express.json({ limit: "2mb" }));
 
   app.post("/api/session", async (request, response) => {
     if (ACTIVE_STAGES.has(store.session.stage)) {
@@ -355,11 +399,27 @@ export function createApp({
       return;
     }
 
+    let botName;
+    let botImage;
+    try {
+      botName = normalizeBotName(request.body?.botName);
+      botImage = normalizeBotImage(request.body?.botImage);
+    } catch (error) {
+      response.status(400).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Enter valid bot appearance settings",
+      });
+      return;
+    }
+
     const session = {
       id: randomUUID(),
       stage: "sending",
       error: null,
       sections,
+      botName,
     };
     store.session = session;
     store.webhookIds.clear();
@@ -369,6 +429,7 @@ export function createApp({
         config,
         meetingUrl,
         session.id,
+        { botName, botImage },
       );
       session.botId = bot.id;
       session.stage = "joining";

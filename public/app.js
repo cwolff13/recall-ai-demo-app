@@ -1,6 +1,16 @@
 const form = document.querySelector("#meeting-form");
 const meetingUrl = document.querySelector("#meeting-url");
 const submitButton = document.querySelector("#submit-button");
+const botCustomization = document.querySelector("#bot-customization");
+const botNameInput = document.querySelector("#bot-name");
+const botImageInput = document.querySelector("#bot-image");
+const botImageName = document.querySelector("#bot-image-name");
+const botImagePreview = document.querySelector("#bot-image-preview");
+const botImagePreviewImage = document.querySelector(
+  "#bot-image-preview-image",
+);
+const botImageError = document.querySelector("#bot-image-error");
+const removeBotImage = document.querySelector("#remove-bot-image");
 const sectionSelector = document.querySelector("#section-selector");
 const sectionInputs = [
   ...document.querySelectorAll('input[name="sections"]'),
@@ -15,6 +25,8 @@ const recording = document.querySelector("#recording");
 const copyButton = document.querySelector("#copy-button");
 const evidenceList = document.querySelector("#evidence-list");
 const defaultSections = sectionInputs.map((input) => input.value);
+const defaultBotName = "Discovery Notes Bot";
+const maxBotImageBytes = 1_300_000;
 
 const stageCopy = {
   idle: ["Ready for a meeting", "Paste a supported meeting URL to begin."],
@@ -67,6 +79,74 @@ let currentTranscript = [];
 let currentMarkdown = "";
 let recordingLoaded = false;
 let selectionSynchronized = false;
+let identitySynchronized = false;
+let currentBotImage = null;
+let botImageRead = Promise.resolve();
+
+function showBotImageError(message = "") {
+  botImageError.textContent = message;
+  botImageError.hidden = !message;
+}
+
+function clearBotImage() {
+  currentBotImage = null;
+  botImageInput.value = "";
+  botImageName.textContent = "No image selected";
+  botImagePreviewImage.removeAttribute("src");
+  botImagePreview.hidden = true;
+  showBotImageError();
+}
+
+function readAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(reader.result));
+    reader.addEventListener("error", () => reject(reader.error));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function loadBotImage(file) {
+  currentBotImage = null;
+  botImagePreview.hidden = true;
+  showBotImageError();
+
+  if (!file) {
+    clearBotImage();
+    return;
+  }
+
+  if (file.type !== "image/jpeg") {
+    clearBotImage();
+    showBotImageError("Choose a JPEG image.");
+    return;
+  }
+
+  if (file.size > maxBotImageBytes) {
+    clearBotImage();
+    showBotImageError("Choose a JPEG no larger than 1.3 MB.");
+    return;
+  }
+
+  try {
+    const dataUrl = await readAsDataUrl(file);
+    if (
+      botImageInput.files?.[0] !== file ||
+      typeof dataUrl !== "string" ||
+      !dataUrl.startsWith("data:image/jpeg;base64,")
+    ) {
+      return;
+    }
+
+    currentBotImage = dataUrl.slice(dataUrl.indexOf(",") + 1);
+    botImageName.textContent = file.name;
+    botImagePreviewImage.src = dataUrl;
+    botImagePreview.hidden = false;
+  } catch {
+    clearBotImage();
+    showBotImageError("The JPEG could not be read.");
+  }
+}
 
 function selectedSections() {
   return sectionInputs
@@ -241,16 +321,35 @@ function renderBrief(session) {
 function renderSession(session) {
   const [title, detail] = stageCopy[session.stage] ?? stageCopy.idle;
   statusTitle.textContent = title;
+  const activeBotName =
+    session.botName || botNameInput.value.trim() || defaultBotName;
   statusDetail.textContent =
-    session.stage === "failed" && session.error ? session.error : detail;
+    session.stage === "failed" && session.error
+      ? session.error
+      : session.stage === "joining"
+        ? `Admit ${activeBotName} if the meeting uses a waiting room.`
+        : detail;
 
   statusCard.dataset.stage = session.stage;
   statusDot.dataset.stage = session.stage;
   const isActive = activeStages.has(session.stage);
   meetingUrl.disabled = isActive;
   submitButton.disabled = isActive;
+  botNameInput.disabled = isActive;
+  botImageInput.disabled = isActive;
+  removeBotImage.disabled = isActive;
+  botCustomization.classList.toggle("is-disabled", isActive);
   sectionSelector.disabled = isActive;
   submitButton.textContent = isActive ? "Bot active" : "Send bot";
+
+  if (
+    !identitySynchronized &&
+    session.stage !== "idle" &&
+    typeof session.botName === "string"
+  ) {
+    botNameInput.value = session.botName;
+    identitySynchronized = true;
+  }
 
   if (
     !selectionSynchronized &&
@@ -282,22 +381,31 @@ async function refreshSession() {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  await botImageRead;
   if (!validateSectionSelection()) {
     sectionInputs[0]?.focus();
     return;
   }
 
   const sections = selectedSections();
+  const botName = botNameInput.value.trim() || defaultBotName;
+  botNameInput.value = botName;
   selectionSynchronized = true;
+  identitySynchronized = true;
   recordingLoaded = false;
   result.hidden = true;
-  renderSession({ stage: "sending" });
+  renderSession({ stage: "sending", botName });
 
   try {
     const response = await fetch("/api/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ meetingUrl: meetingUrl.value, sections }),
+      body: JSON.stringify({
+        meetingUrl: meetingUrl.value,
+        sections,
+        botName,
+        botImage: currentBotImage,
+      }),
     });
     const session = await response.json();
     if (!response.ok && !session.stage) {
@@ -316,6 +424,12 @@ form.addEventListener("submit", async (event) => {
 sectionInputs.forEach((input) => {
   input.addEventListener("change", validateSectionSelection);
 });
+
+botImageInput.addEventListener("change", () => {
+  botImageRead = loadBotImage(botImageInput.files?.[0]);
+});
+
+removeBotImage.addEventListener("click", clearBotImage);
 
 copyButton.addEventListener("click", async () => {
   if (!currentMarkdown) return;

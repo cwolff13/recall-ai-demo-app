@@ -22,10 +22,11 @@ authoritative research.
 
 ## Workflow
 
-1. The user provides a supported meeting URL and chooses which discovery-brief
-   sections to include.
-2. A Recall Meeting Bot joins, notifies participants in chat, and records the
-   interview.
+1. The user provides a supported meeting URL, optionally customizes the bot name
+   and temporary camera card, and chooses which discovery-brief sections to
+   include.
+2. A Recall Meeting Bot joins with the selected appearance, notifies
+   participants in chat, and records the interview.
 3. Verified Recall webhooks communicate capture and processing state.
 4. After the recording is ready, the application requests a Recall
    post-meeting transcript.
@@ -59,6 +60,8 @@ it does not reduce what Recall records or transcribes.
 - Every summary, signal, follow-up, and open question must cite transcript
   evidence.
 - The meeting host remains responsible for participant notice and consent.
+- An uploaded camera card is passed to Recall for the current bot and is not
+  retained as an application asset.
 
 ## Recall capabilities
 
@@ -71,6 +74,7 @@ The core experience uses:
 - Speaker-attributed transcript timestamps
 - Recording playback
 - Automatic chat notification when the bot joins
+- Per-meeting bot naming and static camera output
 
 Additional Recall capabilities should be added only if they materially improve
 this workflow.
@@ -83,6 +87,7 @@ require:
 - Real-time transcription or coaching
 - Authentication, teams, or collaborative editing
 - Durable storage or concurrent meetings
+- Persistent bot-branding profiles or an image library
 - Calendar integration
 - Desktop SDK capture
 - CRM, repository, or research-platform publishing
